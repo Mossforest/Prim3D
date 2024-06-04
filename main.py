@@ -81,7 +81,7 @@ class OptimizerWrapper(object):
 
     def step(self):
         self._calls += 1
-        if self._calls == self.aggregate:
+        if self._calls == self.aggregate:  # ?
             self._calls = 0
             self.optimizer.step()
 
