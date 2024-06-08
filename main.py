@@ -19,6 +19,8 @@ try:
 except ImportError:
     from yaml import Loader
 
+from datasets import Datasets
+
 
 """ taken from https://stackoverflow.com/questions/15008758/parsing-boolean-values-with-argparse"""
 def str2bool(v):
@@ -243,6 +245,8 @@ def train():
     load_checkpoints(net, optimizer, experiment_directory, args, device)
 
     # TODO: create the dataloader
+    datasets = Datasets()
+    
     train_dataset = datasets.Datasets(datamat_path=args.data_path, train=True, image_size=args.res, data_load_ratio=args.data_load_ratio)
     train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size_train, shuffle=True, num_workers=1, drop_last=True)
     val_dataset = datasets.Datasets(datamat_path=args.data_path, train=False, image_size=args.res, data_load_ratio=args.data_load_ratio)

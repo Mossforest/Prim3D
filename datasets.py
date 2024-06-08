@@ -12,7 +12,7 @@ import torchvision.transforms.functional as F
 import pickle
 
 import sys
-sys.path.append('/Disk2/siqi/NewPrimReg')
+# sys.path.append('/Disk2/siqi/NewPrimReg')
 from smpl_webuser.serialization import load_model
 
 
@@ -49,13 +49,16 @@ class Resize_with_pad:
 
 
 class Datasets(object):
-    def __init__(self, datamat_path, train, image_size, data_load_ratio):
-        self.datamat_path = datamat_path
+    def __init__(self, data_path, sq_path, train, image_size, data_load_ratio):
         self.train = train
         self.image_size = image_size
         self.transform = T.Resize((self.image_size, self.image_size))
+        
+        self.data_key = ['frames', 'gt_mask', 'joints3d', 'smplv2d', '3d_info', 'jointstate']
 
-        self.data_list = # TODO
+        self.data_list = self.load_data(data_path, data_load_ratio)
+        self.delta_rots, self.pred_rots, self.pred_sq = self.load_sqs(sq_path)
+        self.plys = self.load_targets()
 
     def __len__(self):
         return len(self.data_list)
@@ -98,8 +101,7 @@ class Datasets(object):
 
     def load_masks(self, path):
         path = path.strip()
-        img = Image.open(path).convert('L')
-        img = np.array(img)
+        img = np.load(path)
         img = np.reshape(img, (1, img.shape[0], img.shape[1]))
         img = torch.Tensor(img)
         rwp = Resize_with_pad()
@@ -107,85 +109,142 @@ class Datasets(object):
 
         return img
 
-    def load_whole_mesh(self, path):
-        path = path.strip()
+    # def cal_box(self, path):
+    #     mesh = trimesh.load(path, force='mesh')
+    #     vertices = mesh.vertices
+    #     faces = mesh.faces
+    #     vertices = torch.Tensor(vertices)
+    #     faces = torch.Tensor(faces)
+    #     vertices = vertices.unsqueeze(0)
+    #     faces = faces.unsqueeze(0)
 
-        mesh = trimesh.load(path, force='mesh')
-        vertices = mesh.vertices
-        faces = mesh.faces
+    #     the_mesh = pytorch3d.structures.Meshes(vertices, faces)
+    #     bbox = the_mesh.get_bounding_boxes()
+    #     bbox = bbox.squeeze(0)
 
-        vertices = torch.Tensor(vertices)
-        faces = torch.Tensor(faces)
+    #     bbox = bbox.cpu().detach().data.numpy()
 
-        return vertices, faces
+    #     return bbox
 
-    def cal_box(self, path):
-        mesh = trimesh.load(path, force='mesh')
-        vertices = mesh.vertices
-        faces = mesh.faces
-        vertices = torch.Tensor(vertices)
-        faces = torch.Tensor(faces)
-        vertices = vertices.unsqueeze(0)
-        faces = faces.unsqueeze(0)
+    # def cal_box_center(self, path):
+    #     box = self.cal_box(path)
 
-        the_mesh = pytorch3d.structures.Meshes(vertices, faces)
-        bbox = the_mesh.get_bounding_boxes()
-        bbox = bbox.squeeze(0)
+    #     mid_x = (box[0, 1] + box[0, 0]) / 2.
+    #     mid_y = (box[1, 1] + box[1, 0]) / 2.
+    #     mid_z = (box[2, 1] + box[2, 0]) / 2.
+    #     mid = [mid_x, mid_y, mid_z]
 
-        bbox = bbox.cpu().detach().data.numpy()
+    #     return mid
+    
+    def load_3d_info(self, path):
+        def parse_line(line):
+            """解析单行数据并返回键值对"""
+            key, value = line.split(': ')
+            try:
+                # 尝试将值转换为浮点数
+                value = float(value)
+            except ValueError:
+                # 如果包含逗号，可能是一个元组，将其转换为浮点数列表
+                if ',' in value:
+                    value = [float(v) for v in value.split(',')]
+            return key, value
 
-        return bbox
+        def load_data_from_file(file_path):
+            """从文件中加载数据并存储到字典"""
+            data_dict = {}
+            with open(file_path, 'r') as file:
+                for line in file:
+                    key, value = parse_line(line.strip())
+                    data_dict[key] = value
+            return data_dict
 
-    def cal_box_center(self, path):
-        box = self.cal_box(path)
+        data = load_data_from_file(path)
+        return data
+    
+    
+    def load_jointstate(self, path):
+        def load_numbers_from_file(file_path):
+            """从文件中加载数字并存储到列表"""
+            numbers_list = []
+            with open(file_path, 'r') as file:
+                for line in file:
+                    # 去除每行末尾的换行符并尝试将其转换为整数
+                    number = int(line.strip())
+                    if not number:
+                        break
+                    numbers_list.append(number)
+            return numbers_list
 
-        mid_x = (box[0, 1] + box[0, 0]) / 2.
-        mid_y = (box[1, 1] + box[1, 0]) / 2.
-        mid_z = (box[2, 1] + box[2, 0]) / 2.
-        mid = [mid_x, mid_y, mid_z]
-
-        return mid
-
-    def load_part_meshes(self, path):
-        ply_path = os.path.join(path, 'image-0')
-        part_num = len(os.listdir(ply_path))
-        vs, fs = [], []
-        for i in range(part_num):
-            ply_p = os.path.join(ply_path, str(i) + '.ply')
-            mesh = trimesh.load(ply_p, force='mesh')
-            vertices = mesh.vertices
-            faces = mesh.faces
-            vertices = torch.Tensor(vertices)
-            faces = torch.Tensor(faces)
-
-            vs.append(vertices)
-            fs.append(faces)
-
-        return vs, fs
-
-    def load_gt_sqs(self, path, is_human):
-        if is_human:
-            h_sqs_rots = np.load(os.path.join(path, 'pred_rots.npy'))
-            ply_path = os.path.join(path, 'image-0')
-            part_num = len(os.listdir(ply_path))
-            h_sqs_trans = []
-            for i in range(part_num):
-                ply_p = os.path.join(ply_path, str(i)+'.ply')
-                center = self.cal_box_center(ply_p)
-                h_sqs_trans.append(center)
-            h_sqs_trans = np.array(h_sqs_trans)
-
-            return h_sqs_rots, h_sqs_trans
+        numbers = load_numbers_from_file(path)
+        return torch.Tensor(numbers)
+    
+    def load_data(self, data_path, data_load_ratio):
+        instance_dict = {key: [] for key in self.data_key}
+        instance_paths = sorted([f for f in os.listdir(f'{data_path}')])
+        if self.train:
+            instance_paths = instance_paths[6:]
+            instance_paths = instance_paths[:int(len(instance_paths) * data_load_ratio)]
         else:
-            o_sqs_rots = np.load(os.path.join(path, 'pred_rots.npy'))
-            o_sqs_trans = np.load(os.path.join(path, 'pred_trans.npy'))
-            o_sqs_scale = np.load(os.path.join(path, 'pred_scale.npy'))
+            instance_paths = instance_paths[:6]
+        
+        for instance_path in instance_paths:
+            # 1. load frames (imgs)
+            frame_list = []
+            frame_path = f'{instance_path}/frames'
+            files = sorted([f for f in os.listdir(frame_path) if os.path.isfile(os.path.join(frame_path, f))])
+            for file in files:
+                file_path = os.path.join(frame_path, file)
+                # img = self.load_images(file_path)
+                img = self.load_images_v2(file_path)
+                frame_list.append(img)
+            instance_dict['frames'].append(torch.array(frame_list))
+            
+            # 2. load gt_mask (256, 256)
+            mask_list = []
+            mask_path = f'{instance_path}/gt_mask'
+            files = sorted([f for f in os.listdir(mask_path) if os.path.isfile(os.path.join(mask_path, f))])
+            for file in files:
+                file_path = os.path.join(mask_path, file)
+                img = self.load_masks(file_path)
+                mask_list.append(img)
+            instance_dict['gt_mask'].append(torch.array(mask_list))
+            
+            # 3. load joints3d (49, 3)
+            joints_list = []
+            joints_path = f'{instance_path}/joints3d'
+            files = sorted([f for f in os.listdir(joints_path) if os.path.isfile(os.path.join(joints_path, f))])
+            for file in files:
+                file_path = os.path.join(joints_path, file)
+                img = np.load(file_path)
+                joints_list.append(img)
+            instance_dict['joints3d'].append(torch.array(joints_list))
 
-            o_sqs_rots = torch.Tensor(o_sqs_rots)
-            o_sqs_trans = torch.Tensor(o_sqs_trans)
-            o_sqs_scale = torch.Tensor(o_sqs_scale)
+            # 4. load smplv2d (6890, 2)
+            smplv2d_list = []
+            smplv2d_path = f'{instance_path}/smplv2d'
+            files = sorted([f for f in os.listdir(smplv2d_path) if os.path.isfile(os.path.join(smplv2d_path, f))])
+            for file in files:
+                file_path = os.path.join(smplv2d_path, file)
+                img = np.load(file_path)
+                smplv2d_list.append(img)
+            instance_dict['smplv2d'].append(torch.array(smplv2d_list))
+            
+            # 5. other files
+            instance_dict['3d_info'].append(self.load_3d_info(f'{instance_path}/3d_info.txt'))
+            instance_dict['jointstate'].append(self.load_jointstate(f'{instance_path}/jointstate.txt'))
+        
+        return instance_dict
 
-            return o_sqs_rots, o_sqs_trans, o_sqs_scale
+    def load_sqs(self, path):
+        sqs_delta_rots = np.load(os.path.join(path, 'delta_rots.npy'))
+        sqs_pred_rots = np.load(os.path.join(path, 'pred_rots.npy'))
+        sqs_pred_sq = np.load(os.path.join(path, 'pred_sq.npy'))
+
+        sqs_delta_rots = torch.Tensor(sqs_delta_rots)
+        sqs_pred_rots = torch.Tensor(sqs_pred_rots)
+        sqs_pred_sq = torch.Tensor(sqs_pred_sq)
+
+        return sqs_delta_rots, sqs_pred_rots, sqs_pred_sq
 
     def load_targets(self, path, num_parts):
         path = path.strip()
@@ -209,11 +268,12 @@ class Datasets(object):
     def __getitem__(self, index):
         # TODO: load data by index and write to data_dict to be returned
 
-        ...
-
-
         data_dict = {}
-        data_dict['rgb_path'] = ...
+        for key in self.data_key:
+            data_dict[key] = data_dict[key][index]
+        
+        data_dict['delta_rots'], data_dict['pred_rots'], data_dict['pred_sq'] = self.delta_rots[index], self.pred_rots[index], self.pred_sq[index]
+        data_dict['']
 
         return data_dict
 
