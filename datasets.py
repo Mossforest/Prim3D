@@ -49,7 +49,7 @@ class Resize_with_pad:
 
 
 class Datasets(object):
-    def __init__(self, data_path, sq_path, train, image_size, data_load_ratio):
+    def __init__(self, data_path, template_path, train, image_size, data_load_ratio):
         self.train = train
         self.image_size = image_size
         self.transform = T.Resize((self.image_size, self.image_size))
@@ -57,8 +57,7 @@ class Datasets(object):
         self.data_key = ['frames', 'gt_mask', 'joints3d', 'smplv2d', '3d_info', 'jointstate']
 
         self.data_list = self.load_data(data_path, data_load_ratio)
-        self.delta_rots, self.pred_rots, self.pred_sq = self.load_sqs(sq_path)
-        self.plys = self.load_targets()
+        self.load_template(template_path)
 
     def __len__(self):
         return len(self.data_list)
@@ -108,33 +107,6 @@ class Datasets(object):
         img = rwp(img)
 
         return img
-
-    # def cal_box(self, path):
-    #     mesh = trimesh.load(path, force='mesh')
-    #     vertices = mesh.vertices
-    #     faces = mesh.faces
-    #     vertices = torch.Tensor(vertices)
-    #     faces = torch.Tensor(faces)
-    #     vertices = vertices.unsqueeze(0)
-    #     faces = faces.unsqueeze(0)
-
-    #     the_mesh = pytorch3d.structures.Meshes(vertices, faces)
-    #     bbox = the_mesh.get_bounding_boxes()
-    #     bbox = bbox.squeeze(0)
-
-    #     bbox = bbox.cpu().detach().data.numpy()
-
-    #     return bbox
-
-    # def cal_box_center(self, path):
-    #     box = self.cal_box(path)
-
-    #     mid_x = (box[0, 1] + box[0, 0]) / 2.
-    #     mid_y = (box[1, 1] + box[1, 0]) / 2.
-    #     mid_z = (box[2, 1] + box[2, 0]) / 2.
-    #     mid = [mid_x, mid_y, mid_z]
-
-    #     return mid
     
     def load_3d_info(self, path):
         def parse_line(line):
@@ -246,6 +218,30 @@ class Datasets(object):
 
         return sqs_delta_rots, sqs_pred_rots, sqs_pred_sq
 
+    def cal_box(self, vertices, faces):
+        the_mesh = pytorch3d.structures.Meshes(vertices, faces)
+        bbox = the_mesh.get_bounding_boxes()
+        bbox = bbox.squeeze(0)
+
+        bbox = bbox.cpu().detach().data.numpy()
+
+        return bbox
+
+    def cal_bbox_center(self, vertices, faces):
+        box = self.cal_box(vertices, faces)
+        breakpoint()
+        mids = []
+
+        for bbox in box:
+            mid_x = (bbox[0, 1] + bbox[0, 0]) / 2.
+            mid_y = (bbox[1, 1] + bbox[1, 0]) / 2.
+            mid_z = (bbox[2, 1] + bbox[2, 0]) / 2.
+            mid = [mid_x, mid_y, mid_z]
+            mids.append(mid)
+
+        return torch.Tensor(mids)
+
+
     def load_targets(self, path, num_parts):
         path = path.strip()
         vs, fs = [], []
@@ -259,21 +255,28 @@ class Datasets(object):
 
             vs.append(vertices)
             fs.append(faces)
-
-        # calculate centers
-        part_centers = self.cal_bbox_center(vs, fs)
+        
+            # calculate centers
+            part_centers = self.cal_bbox_center(vs, fs)
 
         return vs, fs, part_centers
+    
+    def load_template(self, template_path):
+        
+        self.delta_rots, self.pred_rots, self.pred_sq = self.load_sqs(f'{template_path}/plys')
+        self.meshs = self.load_targets(f'{template_path}/plys/SQ_ply', 2)
+        self.joint_info = scipy.io.loadmat(f'{template_path}/joint_info.mat')
+        self.part_centers = np.load(f'{template_path}/part_centers.npy')
 
     def __getitem__(self, index):
-        # TODO: load data by index and write to data_dict to be returned
-
         data_dict = {}
         for key in self.data_key:
             data_dict[key] = data_dict[key][index]
         
-        data_dict['delta_rots'], data_dict['pred_rots'], data_dict['pred_sq'] = self.delta_rots[index], self.pred_rots[index], self.pred_sq[index]
-        data_dict['']
+        data_dict['delta_rots'], data_dict['pred_rots'], data_dict['pred_sq'] = self.delta_rots, self.pred_rots, self.pred_sq
+        data_dict['meshs'] = self.meshs
+        data_dict['joint_info'] = self.joint_info
+        data_dict['part_centers'] = self.part_centers
 
         return data_dict
 

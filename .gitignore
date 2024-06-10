@@ -1,0 +1,13 @@
+# # 忽略特定的文件
+# secret.key
+
+# # 忽略所有 .log 结尾的文件
+# *.log
+
+# # 忽略所有在 build 目录下的文件
+# build/
+
+# # 忽略所有在 docs 目录下但排除 keep.md 的文件
+# docs/
+# !docs/keep.md
+d3dhoi_video_data/

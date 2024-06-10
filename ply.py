@@ -14,15 +14,7 @@ import pickle
 
 
 
-def cal_box(path):
-    mesh = trimesh.load(path, force='mesh')
-    vertices = mesh.vertices
-    faces = mesh.faces
-    vertices = torch.Tensor(vertices)
-    faces = torch.Tensor(faces)
-    vertices = vertices.unsqueeze(0)
-    faces = faces.unsqueeze(0)
-
+def cal_box(vertices, faces):
     the_mesh = pytorch3d.structures.Meshes(vertices, faces)
     bbox = the_mesh.get_bounding_boxes()
     bbox = bbox.squeeze(0)
@@ -31,15 +23,19 @@ def cal_box(path):
 
     return bbox
 
-def cal_bbox_center(path):
-    box = cal_box(path)
+def cal_bbox_center(vertices, faces):
+    box = cal_box(vertices, faces)
+    breakpoint()
+    mids = []
 
-    mid_x = (box[0, 1] + box[0, 0]) / 2.
-    mid_y = (box[1, 1] + box[1, 0]) / 2.
-    mid_z = (box[2, 1] + box[2, 0]) / 2.
-    mid = [mid_x, mid_y, mid_z]
+    for bbox in box:
+        mid_x = (bbox[0, 1] + bbox[0, 0]) / 2.
+        mid_y = (bbox[1, 1] + bbox[1, 0]) / 2.
+        mid_z = (bbox[2, 1] + bbox[2, 0]) / 2.
+        mid = [mid_x, mid_y, mid_z]
+        mids.append(mid)
 
-    return mid
+    return torch.Tensor(mids)
 
 
 def load_targets(path, num_parts):
@@ -55,12 +51,12 @@ def load_targets(path, num_parts):
 
         vs.append(vertices)
         fs.append(faces)
-
-    # calculate centers
-    part_centers = cal_bbox_center(vs, fs)
+    
+        # calculate centers
+        part_centers = cal_bbox_center(vs, fs)
 
     return vs, fs, part_centers
 
 
 
-load_targets()
+load_targets('/mnt/nas-new/home/chenxinyan/3d/term_project/SQ_templates/microwave/plys/SQ_ply', 2)
