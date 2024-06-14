@@ -216,9 +216,9 @@ class Datasets(object):
         sqs_pred_rots = np.load(os.path.join(path, 'pred_rots.npy'))
         sqs_pred_sq = np.load(os.path.join(path, 'pred_sq.npy'))
 
-        sqs_delta_rots = torch.Tensor(sqs_delta_rots)
-        sqs_pred_rots = torch.Tensor(sqs_pred_rots)
-        sqs_pred_sq = torch.Tensor(sqs_pred_sq)
+        sqs_delta_rots = torch.Tensor(sqs_delta_rots).squeeze()
+        sqs_pred_rots = torch.Tensor(sqs_pred_rots).squeeze()
+        sqs_pred_sq = torch.Tensor(sqs_pred_sq).squeeze()
 
         return sqs_delta_rots, sqs_pred_rots, sqs_pred_sq
 
@@ -270,18 +270,20 @@ class Datasets(object):
         self.meshs = self.load_targets(f'{template_path}/plys/SQ_ply', 2)
         self.joint_info = scipy.io.loadmat(f'{template_path}/joint_info.mat')
         self.part_centers = np.load(f'{template_path}/part_centers.npy')
+    
+    def get_template(self):
+        sq_dict = {}
+        mesh_dict = {}
+        sq_dict['delta_rots'], sq_dict['pred_rots'], sq_dict['pred_sq'] = self.delta_rots, self.pred_rots, self.pred_sq
+        mesh_dict['vertices'] = self.meshs[0]
+        mesh_dict['faces'] = self.meshs[1]
+        mesh_dict['part_centers'] = self.meshs[2]
+        return sq_dict, mesh_dict, self.joint_info, self.part_centers
 
     def __getitem__(self, index):
         data_dict = {}
         for key in self.data_key:
             data_dict[key] = data_dict[key][index]
-        
-        data_dict['delta_rots'], data_dict['pred_rots'], data_dict['pred_sq'] = self.delta_rots, self.pred_rots, self.pred_sq
-        data_dict['meshs'] = self.meshs
-        data_dict['joint_info'] = self.joint_info
-        data_dict['part_centers'] = self.part_centers
-        
-        # TODO: change to img only? if call temp, use another func directly
 
         return data_dict
 

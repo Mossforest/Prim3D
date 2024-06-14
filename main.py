@@ -249,6 +249,9 @@ def train():
     val_dataloader = torch.utils.data.DataLoader(val_dataset, batch_size=args.batch_size_val, shuffle=False, num_workers=1)
     print ('Dataloader finished!')
     
+    sq_template = train_dataset.get_template()
+    sq_attr, sq_mesh, sq_joint_info, sq_part_centers = sq_template
+    
     breakpoint()
 
     # TODO: create the differtiable renderer
