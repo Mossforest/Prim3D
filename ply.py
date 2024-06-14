@@ -25,7 +25,6 @@ def cal_box(vertices, faces):
 
 def cal_bbox_center(vertices, faces):
     box = cal_box(vertices, faces)
-    breakpoint()
     mids = []
 
     for bbox in box:

@@ -13,7 +13,6 @@ import pickle
 
 import sys
 # sys.path.append('/Disk2/siqi/NewPrimReg')
-from smpl_webuser.serialization import load_model
 
 
 class Resize_with_pad:
@@ -49,7 +48,7 @@ class Resize_with_pad:
 
 
 class Datasets(object):
-    def __init__(self, data_path, template_path, train, image_size, data_load_ratio):
+    def __init__(self, data_path, template_path, train, image_size, data_load_ratio=1.0):
         self.train = train
         self.image_size = image_size
         self.transform = T.Resize((self.image_size, self.image_size))
@@ -111,23 +110,28 @@ class Datasets(object):
     def load_3d_info(self, path):
         def parse_line(line):
             """解析单行数据并返回键值对"""
-            key, value = line.split(': ')
             try:
-                # 尝试将值转换为浮点数
-                value = float(value)
+                key, value = line.split(': ')
+                try:
+                    # 尝试将值转换为浮点数
+                    value = float(value)
+                except ValueError:
+                    # 如果包含逗号，可能是一个元组，将其转换为浮点数列表
+                    if ',' in value:
+                        value = [float(v) for v in value.split(',')]
+                return key, value
             except ValueError:
-                # 如果包含逗号，可能是一个元组，将其转换为浮点数列表
-                if ',' in value:
-                    value = [float(v) for v in value.split(',')]
-            return key, value
+                return None
 
         def load_data_from_file(file_path):
             """从文件中加载数据并存储到字典"""
             data_dict = {}
             with open(file_path, 'r') as file:
                 for line in file:
-                    key, value = parse_line(line.strip())
-                    data_dict[key] = value
+                    res = parse_line(line.strip())
+                    if res:
+                        key, value = res
+                        data_dict[key] = value
             return data_dict
 
         data = load_data_from_file(path)
@@ -152,7 +156,7 @@ class Datasets(object):
     
     def load_data(self, data_path, data_load_ratio):
         instance_dict = {key: [] for key in self.data_key}
-        instance_paths = sorted([f for f in os.listdir(f'{data_path}')])
+        instance_paths = sorted([f'{data_path}/{f}' for f in os.listdir(f'{data_path}')])
         if self.train:
             instance_paths = instance_paths[6:]
             instance_paths = instance_paths[:int(len(instance_paths) * data_load_ratio)]
@@ -169,7 +173,7 @@ class Datasets(object):
                 # img = self.load_images(file_path)
                 img = self.load_images_v2(file_path)
                 frame_list.append(img)
-            instance_dict['frames'].append(torch.array(frame_list))
+            instance_dict['frames'].append(torch.stack(frame_list))
             
             # 2. load gt_mask (256, 256)
             mask_list = []
@@ -179,7 +183,7 @@ class Datasets(object):
                 file_path = os.path.join(mask_path, file)
                 img = self.load_masks(file_path)
                 mask_list.append(img)
-            instance_dict['gt_mask'].append(torch.array(mask_list))
+            instance_dict['gt_mask'].append(torch.stack(mask_list))
             
             # 3. load joints3d (49, 3)
             joints_list = []
@@ -187,9 +191,9 @@ class Datasets(object):
             files = sorted([f for f in os.listdir(joints_path) if os.path.isfile(os.path.join(joints_path, f))])
             for file in files:
                 file_path = os.path.join(joints_path, file)
-                img = np.load(file_path)
+                img = torch.Tensor(np.load(file_path))
                 joints_list.append(img)
-            instance_dict['joints3d'].append(torch.array(joints_list))
+            instance_dict['joints3d'].append(torch.stack(joints_list))
 
             # 4. load smplv2d (6890, 2)
             smplv2d_list = []
@@ -197,9 +201,9 @@ class Datasets(object):
             files = sorted([f for f in os.listdir(smplv2d_path) if os.path.isfile(os.path.join(smplv2d_path, f))])
             for file in files:
                 file_path = os.path.join(smplv2d_path, file)
-                img = np.load(file_path)
+                img = torch.Tensor(np.load(file_path))
                 smplv2d_list.append(img)
-            instance_dict['smplv2d'].append(torch.array(smplv2d_list))
+            instance_dict['smplv2d'].append(torch.stack(smplv2d_list))
             
             # 5. other files
             instance_dict['3d_info'].append(self.load_3d_info(f'{instance_path}/3d_info.txt'))
@@ -229,7 +233,6 @@ class Datasets(object):
 
     def cal_bbox_center(self, vertices, faces):
         box = self.cal_box(vertices, faces)
-        breakpoint()
         mids = []
 
         for bbox in box:
@@ -256,8 +259,8 @@ class Datasets(object):
             vs.append(vertices)
             fs.append(faces)
         
-            # calculate centers
-            part_centers = self.cal_bbox_center(vs, fs)
+        # calculate centers
+        part_centers = self.cal_bbox_center(vs, fs)
 
         return vs, fs, part_centers
     
@@ -277,6 +280,8 @@ class Datasets(object):
         data_dict['meshs'] = self.meshs
         data_dict['joint_info'] = self.joint_info
         data_dict['part_centers'] = self.part_centers
+        
+        # TODO: change to img only? if call temp, use another func directly
 
         return data_dict
 

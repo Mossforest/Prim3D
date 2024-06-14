@@ -2,6 +2,7 @@
 The main code for training the model
 '''
 import os
+from datetime import datetime
 import argparse
 import numpy as np
 import scipy.io
@@ -20,6 +21,7 @@ except ImportError:
     from yaml import Loader
 
 from datasets import Datasets
+from renderer_nvdiff import Nvdiffrast
 
 
 """ taken from https://stackoverflow.com/questions/15008758/parsing-boolean-values-with-argparse"""
@@ -36,19 +38,22 @@ def str2bool(v):
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--mode', type=str, default='train', help='Determine if we run the code for training or testing. Chosen from [train, test]')
-parser.add_argument('--log_dir', type=str, default='/Disk3/siqi/NewPrimReg_outputs_aaai/baseline/logs')
+parser.add_argument('--log_dir', type=str, default='/mnt/nas-new/home/chenxinyan/3d/term_project/output/logs')
 parser.add_argument('--gpu_id', type=int, default=0)
 # parser.add_argument('--output_directory', type=str, default='../../NewPrimReg_outputs_iccv/baseline/output_dir')
-parser.add_argument('--output_directory', type=str, default='/Disk3/siqi/NewPrimReg_outputs_aaai/baseline/output_dir')
-parser.add_argument('--experiment_tag', type=str, default='laptop')
+parser.add_argument('--output_directory', type=str, default='/mnt/nas-new/home/chenxinyan/3d/term_project/output')
+parser.add_argument('--experiment_tag', type=str, default='microwave')
 parser.add_argument('--device', type=str, default='cuda:0')
 # parser.add_argument('--vit_f_dim', type=int, default=3025) # dino
+parser.add_argument('--epoch', type=int, default=200)
 parser.add_argument('--vit_f_dim', type=int, default=384) # dinov2
 # parser.add_argument('--res', type=int, default=112)
 parser.add_argument('--res', type=int, default=224)
 parser.add_argument('--batch_size_train', type=int, default=8, help='Batch size of the training dataloader.')
 parser.add_argument('--batch_size_val', type=int, default=1, help='Batch size of the val dataloader.')
-parser.add_argument('--data_path', type=str, default='/Disk3/siqi/Data/NewPrimReg_collected_matdata_syn/laptop.mat')
+parser.add_argument('--data_path', type=str, default='/mnt/nas-new/home/chenxinyan/3d/term_project/d3dhoi_video_data/microwave')
+parser.add_argument('--template_path', type=str, default='/mnt/nas-new/home/chenxinyan/3d/term_project/SQ_templates/microwave')
+parser.add_argument('--data_load_ratio', type=float, default=1.0)
 parser.add_argument('--save_every', type=int, default=200)
 parser.add_argument('--val_every', type=int, default=200)
 # parser.add_argument('--eval_images'
@@ -121,8 +126,16 @@ def load_config(config_file):
     return config
 
 
-def id_generator(size=6, chars=string.ascii_uppercase + string.digits):
-    return ''.join(random.choice(chars) for _ in range(size))
+def id_generator(text):
+    # 获取当前时间
+    now = datetime.now()
+
+    # 格式化时间字符串，例如：20240611_153045
+    formatted_time = now.strftime("%d_%H%M%S")
+
+    # 拼接字符串 "xxxx_time"
+    time_string = f"{text}_{formatted_time}"
+    return time_string
 
 
 def save_checkpoints(epoch, model, optimizer, experiment_directory, args):
@@ -139,6 +152,7 @@ def save_checkpoints(epoch, model, optimizer, experiment_directory, args):
 
 
 def load_checkpoints(model, optimizer, experiment_directory, args, device):
+    breakpoint()
     if args.checkpoint_model_path is None:
         model_files = [
             f for f in os.listdir(experiment_directory)
@@ -172,23 +186,6 @@ def load_checkpoints(model, optimizer, experiment_directory, args, device):
         )
 
 
-def load_init_template_data(path):
-    data_path_dict = scipy.io.loadmat(path)
-    data_dict = {}
-
-    init_object_sq = np.load(data_path_dict['object_init_sq_path'][0])
-    data_dict['init_object_sq'] = torch.Tensor(init_object_sq).cuda()
-    init_object_rots = np.load(data_path_dict['object_init_rots_path'][0])
-    data_dict['init_object_rots'] = torch.Tensor(init_object_rots).cuda()
-    init_object_old_center = np.load(data_path_dict['object_init_old_center_path'][0])
-    data_dict['init_object_old_center'] = torch.Tensor(init_object_old_center).cuda()
-
-    data_dict['object_axle'] = data_path_dict['object_axle'][0]
-    data_dict['object_num_bones'] = data_path_dict['object_num_bones'][0][0]
-
-    return data_dict
-
-
 def test():
     print ('To be finished...')
 
@@ -207,10 +204,7 @@ def train():
         os.makedirs(args.output_directory)
 
     # Create an experiment directory using the experiment_tag
-    if args.experiment_tag is None:
-        experiment_tag = id_generator(9)
-    else:
-        experiment_tag = args.experiment_tag
+    experiment_tag = id_generator(args.experiment_tag)
 
     experiment_directory = os.path.join(
         args.output_directory,
@@ -229,30 +223,33 @@ def train():
         os.makedirs(log_dir)
     writer = SummaryWriter(log_dir=log_dir)
 
-    config = load_config(args.config_file)
-    epochs = config["training"].get("epochs", 500)
+    if hasattr(args, 'config_file'):
+        config = load_config(args.config_file)
+        epochs = config["training"].get("epochs", 500)
+    else:
+        epochs = args.epoch
 
-    net = # TODO: Create the network
-    if torch.cuda.device_count() > 1:
-        net = torch.nn.DataParallel(net)
-    net.cuda()
+    # net = # TODO: Create the network
+    # if torch.cuda.device_count() > 1:
+    #     net = torch.nn.DataParallel(net)
+    # net.cuda()
 
     # Build an optimizer object to compute the gradients of the parameters
-    optimizer = torch.optim.Adam(net.parameters(), lr=args.lr)
-    if args.annealing_lr:
-        scheduler = CosineAnnealingWarmRestarts(optimizer, T_0=5, T_mult=2)
-    # Load the checkpoints if they exist in the experiment directory
-    load_checkpoints(net, optimizer, experiment_directory, args, device)
+    # optimizer = torch.optim.Adam(net.parameters(), lr=args.lr)
+    # if args.annealing_lr:
+    #     scheduler = CosineAnnealingWarmRestarts(optimizer, T_0=5, T_mult=2)
+    # # Load the checkpoints if they exist in the experiment directory
+    # load_checkpoints(net, optimizer, experiment_directory, args, device)
 
     # TODO: create the dataloader
-    datasets = Datasets()
     
-    train_dataset = datasets.Datasets(datamat_path=args.data_path, train=True, image_size=args.res, data_load_ratio=args.data_load_ratio)
+    train_dataset = Datasets(data_path=args.data_path, template_path=args.template_path, train=True, image_size=args.res, data_load_ratio=args.data_load_ratio)
     train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size_train, shuffle=True, num_workers=1, drop_last=True)
-    val_dataset = datasets.Datasets(datamat_path=args.data_path, train=False, image_size=args.res, data_load_ratio=args.data_load_ratio)
+    val_dataset = Datasets(data_path=args.data_path, template_path=args.template_path, train=False, image_size=args.res)
     val_dataloader = torch.utils.data.DataLoader(val_dataset, batch_size=args.batch_size_val, shuffle=False, num_workers=1)
-    init_template_data_dict = load_init_template_data(args.data_path)
     print ('Dataloader finished!')
+    
+    breakpoint()
 
     # TODO: create the differtiable renderer
     renderer = Nvdiffrast(FOV=39.6)
