@@ -293,6 +293,7 @@ class Datasets(object):
 
         data_dict={}
         data_dict["rgb_image"] = raw_data_dict["frames"]
+        data_dict['gt_mask']= raw_data_dict['gt_mask']
         
         rgb= raw_data_dict["frames"]  #torch.Size([30, 3, 224, 224])
         o_mask = raw_data_dict["gt_mask"] #torch.Size([30, 1, 224, 224])
@@ -300,29 +301,17 @@ class Datasets(object):
         o_image = rgb * o_mask
         data_dict["o_image"] = o_image
 
-        # data_dict["object_input_pts"]=raw_data_dict["smplv2d"]
         # deform
         joint_info = self.joint_info
         data_dict["object_joint_tree" ] =joint_info["joint_tree"]
         data_dict["object_primitive_align" ]= joint_info["primitive_align"]
         data_dict["object_joint_parameter_leaf"] = joint_info["joint_parameter_leaf"]
 
-
         data_dict["object_input_pts"] = self.meshs[0]
+        data_dict["faces"] = self.meshs[1]
         data_dict["init_object_old_center"] = self.meshs[2]
 
         data_dict['jointstate'] = raw_data_dict['jointstate']
-
-
-
-
-
-        # object_image_np = object_image.permute(1,2,0).numpy()
-        # object_image_np = np.clip(object_image_np, 0, 1) * 255
-        # object_image_np = object_image_np.astype(np.uint8)
-        # output_image = Image.fromarray(object_image_np)
-        # output_image.save('/root/Prim3D/object_image_rendered.png')
-
 
         return data_dict
 
