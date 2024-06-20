@@ -189,7 +189,7 @@ class Datasets(object):
                 file_path = os.path.join(mask_path, file)
                 img = self.load_masks(file_path) #torch.Size([1, 224, 224])
                 mask_list.append(img)
-            instance_dict['gt_mask'].append(torch.stack(mask_list))
+            instance_dict['gt_mask'].append(torch.stack(mask_list)) #torch.Size([16, 1, 224, 224])
             
             # # 3. load joints3d (49, 3)  # 感觉这个应该是 3D keypoint loss
             joints_list = []
@@ -197,9 +197,9 @@ class Datasets(object):
             files = sorted([f for f in os.listdir(joints_path) if os.path.isfile(os.path.join(joints_path, f))])
             for file in files:
                 file_path = os.path.join(joints_path, file)
-                img = torch.Tensor(np.load(file_path))
+                img = torch.Tensor(np.load(file_path))  #每一个都是(49,3)
                 joints_list.append(img)
-            instance_dict['joints3d'].append(torch.stack(joints_list))
+            instance_dict['joints3d'].append(torch.stack(joints_list)) #torch.Size([16, 49, 3])
 
             # 4. load smplv2d
             smplv2d_list = []
@@ -207,13 +207,13 @@ class Datasets(object):
             files = sorted([f for f in os.listdir(smplv2d_path) if os.path.isfile(os.path.join(smplv2d_path, f))])
             for file in files:
                 file_path = os.path.join(smplv2d_path, file)
-                img = torch.Tensor(np.load(file_path))
+                img = torch.Tensor(np.load(file_path)) #torch.Size([6890, 2]) 每一个都是
                 smplv2d_list.append(img)
-            instance_dict['smplv2d'].append(torch.stack(smplv2d_list))
+            instance_dict['smplv2d'].append(torch.stack(smplv2d_list)) #torch.Size([16, 6890, 2])
             
-            # # 5. other files
-            # instance_dict['3d_info'].append(self.load_3d_info(f'{instance_path}/3d_info.txt'))
-            # instance_dict['jointstate'].append(self.load_jointstate(f'{instance_path}/jointstate.txt'))
+            # 5. other files
+            instance_dict['3d_info'].append(self.load_3d_info(f'{instance_path}/3d_info.txt'))
+            instance_dict['jointstate'].append(self.load_jointstate(f'{instance_path}/jointstate.txt'))
         
         return instance_dict
 
@@ -259,8 +259,8 @@ class Datasets(object):
             mesh = trimesh.load(prim_p, force='mesh', process=False)  # 三维三角面网格 #模型的顶点、面和相关数据 <trimesh.Trimesh(vertices.shape=(656, 3), faces.shape=(1308, 3), name=`0.ply`)>
             vertices = mesh.vertices 
             faces = mesh.faces
-            vertices = torch.Tensor(vertices) #torch.Size([656, 3])
-            faces = torch.Tensor(faces) #torch.Size([1308, 3])
+            vertices = torch.Tensor(vertices) #torch.Size([656, 3])  #torch.Size([873, 3])
+            faces = torch.Tensor(faces) #torch.Size([1308, 3])  #(1742, 3)
 
             vs.append(vertices)
             fs.append(faces)
@@ -268,7 +268,7 @@ class Datasets(object):
         # calculate centers
         part_centers = self.cal_bbox_center(vs, fs)  #计算给定一组顶点（vertices）和面（faces）组成的物体的边界盒（bounding boxes）的中心点坐标。函数最终返回一个包含所有中心点坐标的 PyTorch 张量（torch.Tensor）。
 
-        return vs, fs, part_centers
+        return vs, fs, part_centers  #torch.Size([2, 3])
     
     def load_template(self, template_path):
         
@@ -311,7 +311,7 @@ class Datasets(object):
         data_dict["object_input_pts"] = self.meshs[0]
         data_dict["init_object_old_center"] = self.meshs[2]
 
-        data_dict['joints3d'] = raw_data_dict['joints3d']
+        data_dict['jointstate'] = raw_data_dict['jointstate']
 
 
 

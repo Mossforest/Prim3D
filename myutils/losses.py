@@ -28,8 +28,8 @@ import os
 import torch
 import torch.nn as nn
 import numpy as np
-import pytorch3d
-import pytorch3d.loss as p3dloss
+# import pytorch3d
+# import pytorch3d.loss as p3dloss
 from lapsolver import solve_dense
 import torch.nn.functional as F
 

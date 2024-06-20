@@ -25,7 +25,14 @@ from renderer_nvdiff import Nvdiffrast
 
 from networks.baseline_network import Network_pts
 import configparser
-# from myutils.losses import *
+from myutils.losses import mseloss
+
+class Mesh:
+    def __init__(self, vertices, faces, colors):
+        self.vertices = vertices
+        self.faces = faces
+        self.colors = colors
+
 
 """ taken from https://stackoverflow.com/questions/15008758/parsing-boolean-values-with-argparse"""
 def str2bool(v):
@@ -329,9 +336,26 @@ def train():
                     bin=None # 没用
                 )
 
-                gt_3d_keypoint = data_dict['joints3d'][frame_id]
+                # Part segment masks loss
+                for i in range(2):
+                    vertices = pred_dict['deformed_object'][i][0] #torch.Size([1, 656, 3])
+                    faces = train_dataset.meshs[1][i]  #torch.Size([1308, 3])
+                    num_vertices = vertices.shape[0]  # 656
+                    colors = torch.rand(num_vertices,3).cuda() #torch.Size([656, 3])
+                    mesh = Mesh(vertices,faces,colors)
+                    seg_map = renderer(mesh,(0,0,0,0,224,224),focal_length=0) #focal_length用不上
+                    
 
-                keypoint_loss=L1Loss(pred_dic,gt_3d_keypoint)
+
+                # TODO 3D keypoint loss
+                pred_3d_keypoint = pred_dict['deformed_object_pivot_loc']
+                # gt_3d_keypoint = ???
+                # keypoint_loss=L1Loss(pred_3d_keypoint,gt_3d_keypoint)
+
+
+                # Joint angle loss
+                joint_angle_loss = mseloss(data_dict['jointstate'][frame_id], pred_dict['object_pred_angle_leaf']) 
+
 
                 predict_dict_list.append(predict_dict)
 

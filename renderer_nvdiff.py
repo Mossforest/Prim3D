@@ -1,3 +1,5 @@
+# 这个文件比my utils短很多
+
 import os
 os.environ['PYOPENGL_PLATFORM'] = 'egl'
 import nvdiffrast.torch as dr
@@ -6,6 +8,8 @@ import torch
 import numpy as np
 import pytorch3d.transforms
 
+os.system("Xvfb :99 -screen 0 1024x768x24 &")
+os.environ['DISPLAY'] = ':99'
 
 class Nvdiffrast(object):
     def __init__(self, FOV=60, height=512, width=512, focal_length=None):
@@ -82,6 +86,24 @@ class Nvdiffrast(object):
 
         return P
 
+
+
+    # def render_seg_map(self, v_pos_clip, faces, colors, render_reso):
+    #     glctx = dr.RasterizeGLContext()
+    #     with dr.DepthPeeler(glctx, v_pos_clip, faces, render_reso) as peeler:
+    #         seg_map_list = []
+    #         for layer_idx in range(1):  # 如果你只需要第一个图层，可以直接用range(1)
+    #             rast, _ = peeler.rasterize_next_layer()
+    #             B, H, W, _ = rast.shape
+
+    #             seg_map, _ = self.interpolate(colors[None, ...], rast, faces)
+    #             seg_map_list.append(seg_map)
+
+    #     return seg_map_list[0]
+
+# 示例调用
+# seg_map = self.render_seg_map(v_pos_clip, faces, colors, render_reso)
+
     def render_seg_map(self, v_pos_clip, faces, colors, render_reso):
         glctx = dr.RasterizeGLContext()
         with dr.DepthPeeler(glctx, v_pos_clip, faces, render_reso) as peeler:
@@ -93,17 +115,17 @@ class Nvdiffrast(object):
 
         return seg_map
 
-    def __call__(self, mesh, image_pad_info, focal_length):
+    def __call__(self, mesh, image_pad_info, focal_length):  # 用这个函数
         verts = mesh.vertices
         verts = torch.matmul(self.rot, torch.permute(verts, (1, 0)))
-        verts = torch.permute(verts, (1, 0))
-        faces = mesh.faces
+        verts = torch.permute(verts, (1, 0)) #torch.Size([656, 3])
+        faces = mesh.faces #torch.Size([1308, 3])
 
-        top, bottom, left, right, height, width = image_pad_info
-        if focal_length == 0:
-            the_focal_length = self.focal_length * max(height, width) / 2
-        else:
-            the_focal_length = focal_length
+        top, bottom, left, right, height, width = image_pad_info  #只用上了height, width 
+        # if focal_length == 0:
+        #     the_focal_length = self.focal_length * max(height, width) / 2  用不上
+        # else:
+        #     the_focal_length = focal_length
         render_reso = (height, width)
 
         # proj = self.intrinsics(fx=the_focal_length, fy=the_focal_length, cx=width / 2, cy=height / 2)
