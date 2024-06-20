@@ -23,7 +23,7 @@ except ImportError:
 from datasets import Datasets
 from renderer_nvdiff import Nvdiffrast
 
-from networks.baseline_network import Network_pts
+# from networks.baseline_network import Network_pts
 import configparser
 from myutils.losses import mseloss
 
@@ -308,7 +308,7 @@ def train():
             # object_white_mask = data_dict['o_mask'].cuda()
             # object_white_mask = data_dict['gt_mask'].cuda()
 
-            # predict_dict_list=[]
+            predict_dict_list=[]
             whole_rgb_image = data_dict['rgb_image']
             whole_o_image = data_dict["o_image"]
             # TODO: pass the input data to the network and generate the predictions
@@ -355,9 +355,15 @@ def train():
 
                 # Joint angle loss
                 joint_angle_loss = mseloss(data_dict['jointstate'][frame_id], pred_dict['object_pred_angle_leaf']) 
+                
+                
+                # TODO surface vertices loss
+                pred_3d_keypoint = pred_dict['deformed_object_pivot_loc']
+                # gt_3d_keypoint = ???
+                # keypoint_loss=L1Loss(pred_3d_keypoint,gt_3d_keypoint)
 
 
-                predict_dict_list.append(predict_dict)
+                predict_dict_list.append(pred_dict)
 
             # TODO: compute loss functions
             loss = ...
@@ -416,11 +422,75 @@ def train():
     print("Saved statistics in {}".format(experiment_tag))
 
 
+def debug():
+    torch.manual_seed(0)
+
+    if torch.cuda.is_available():
+        device = torch.device("cuda:%d"%(args.gpu_id))
+    else:
+        device = torch.device("cpu")
+    print("Running code on", device)
+
+    # Check if output directory exists and if it doesn't create it
+    if not os.path.exists(args.output_directory):
+        os.makedirs(args.output_directory)
+
+    # Create an experiment directory using the experiment_tag
+    experiment_tag = id_generator(args.experiment_tag)
+
+    experiment_directory = os.path.join(
+        args.output_directory,
+        experiment_tag
+    )
+    if not os.path.exists(experiment_directory):
+        os.makedirs(experiment_directory)
+
+    # Get the parameters and their ordering for the spreadsheet
+    save_experiment_params(args, experiment_tag, experiment_directory)
+    print("Save experiment statistics in {}".format(experiment_tag))
+
+    # Set log_dir for tensorboard
+    log_dir = os.path.join(args.log_dir, experiment_tag)
+    if not os.path.exists(log_dir):
+        os.makedirs(log_dir)
+    writer = SummaryWriter(log_dir=log_dir)
+
+    if hasattr(args, 'config_file'):
+        config = load_config(args.config_file)
+        epochs = config["training"].get("epochs", 500)
+    else:
+        epochs = args.epoch
+    
+    # from graphAE_weight.graphAE_config import GraphAEConfig=
+    # GraphAE_config=GraphAEConfig()
+    # config = configparser.ConfigParser()
+    # config.read("graphAE_weight/graphAE.config")
+    # print(config)
+
+    from myutils.graphAE_param import Parameters
+    GraphAE_config = Parameters()
+    GraphAE_config.read_config("graphAE_weight/my_graphAE.config")
+
+    # TODO: create the dataloader
+    
+    train_dataset = Datasets(data_path=args.data_path, template_path=args.template_path, train=True, image_size=args.res, data_load_ratio=args.data_load_ratio)
+    train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size_train, shuffle=True, num_workers=0, drop_last=True)
+    val_dataset = Datasets(data_path=args.data_path, template_path=args.template_path, train=False, image_size=args.res)
+    val_dataloader = torch.utils.data.DataLoader(val_dataset, batch_size=args.batch_size_val, shuffle=False, num_workers=0)
+    print ('Dataloader finished!')
+    
+    for _, X in enumerate(tqdm(train_dataloader)):
+        breakpoint()
+        data_dict = X
+    
+
 if __name__ == '__main__':
     if args.mode == 'train':
         train()
     elif args.mode == 'test':
         test()
+    elif args.mode == 'debug':
+        debug()
     else:
         print ('Bad Mode!')
         os._exit(0)

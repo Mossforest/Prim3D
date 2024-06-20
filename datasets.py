@@ -317,6 +317,7 @@ class Datasets(object):
 
 
 
+        # object_image = o_image[0]
         # object_image_np = object_image.permute(1,2,0).numpy()
         # object_image_np = np.clip(object_image_np, 0, 1) * 255
         # object_image_np = object_image_np.astype(np.uint8)
