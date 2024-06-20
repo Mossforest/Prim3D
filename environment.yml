@@ -309,4 +309,4 @@ dependencies:
     - vtk==9.0.1
     - werkzeug==2.2.2
     - x21==0.4.25
-prefix: /home/sl647/.conda/envs/primreg
+prefix: /opt/conda/envs/primreg

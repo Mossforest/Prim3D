@@ -12,3 +12,13 @@
 # !docs/keep.md
 d3dhoi_video_data/
 output/
+
+*.pth
+*.zip
+
+*.png
+debug
+
+PrimReg_outputs
+*/__pycache__/
+*.pyc

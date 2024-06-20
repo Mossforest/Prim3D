@@ -14,6 +14,7 @@ import pickle
 import sys
 # sys.path.append('/Disk2/siqi/NewPrimReg')
 
+from tqdm import tqdm
 
 class Resize_with_pad:
     def __init__(self, w=224, h=224):
@@ -54,12 +55,14 @@ class Datasets(object):
         self.transform = T.Resize((self.image_size, self.image_size))
         
         self.data_key = ['frames', 'gt_mask', 'joints3d', 'smplv2d', '3d_info', 'jointstate']
+        # self.data_key = ['frames', 'gt_mask' ]
 
         self.data_list = self.load_data(data_path, data_load_ratio)
         self.load_template(template_path)
 
     def __len__(self):
-        return len(self.data_list)
+        # return len(self.data_list)
+        return len(self.data_list['frames'])
 
     def padding_image(self, image):
         h, w = image.shape[:2]
@@ -145,9 +148,12 @@ class Datasets(object):
             with open(file_path, 'r') as file:
                 for line in file:
                     # 去除每行末尾的换行符并尝试将其转换为整数
-                    number = int(line.strip())
-                    if not number:
+                    line = line.strip()
+                    if line=="":
                         break
+                    number = int(line.strip())
+                    # if not number:  #??? 是不是有问题
+                    #     break
                     numbers_list.append(number)
             return numbers_list
 
@@ -163,29 +169,29 @@ class Datasets(object):
         else:
             instance_paths = instance_paths[:6]
         
-        for instance_path in instance_paths:
+        for instance_path in tqdm(instance_paths):
             # 1. load frames (imgs)
             frame_list = []
             frame_path = f'{instance_path}/frames'
-            files = sorted([f for f in os.listdir(frame_path) if os.path.isfile(os.path.join(frame_path, f))])
+            files = sorted([f for f in os.listdir(frame_path) if os.path.isfile(os.path.join(frame_path, f))])  # ['images-0001.jpg', 'images-0002.jpg', 'images-0003.jpg', 'images-0004.jpg', 'images-0005.jpg', 'images-0006.jpg', 'images-0007.jpg', 'images-0008.jpg', 'images-0009.jpg', 'images-0010.jpg', 'images-0011.jpg', 'images-0012.jpg', 'images-0013.jpg', 'images-0014.jpg', ...]
             for file in files:
                 file_path = os.path.join(frame_path, file)
                 # img = self.load_images(file_path)
-                img = self.load_images_v2(file_path)
+                img = self.load_images_v2(file_path)  #torch.Size([3, 224, 224])
                 frame_list.append(img)
-            instance_dict['frames'].append(torch.stack(frame_list))
+            instance_dict['frames'].append(torch.stack(frame_list))  # [torch.Size([16, 3, 224, 224])]
             
-            # 2. load gt_mask (256, 256)
+            # 2. load gt_mask (256, 256)?
             mask_list = []
             mask_path = f'{instance_path}/gt_mask'
             files = sorted([f for f in os.listdir(mask_path) if os.path.isfile(os.path.join(mask_path, f))])
             for file in files:
                 file_path = os.path.join(mask_path, file)
-                img = self.load_masks(file_path)
+                img = self.load_masks(file_path) #torch.Size([1, 224, 224])
                 mask_list.append(img)
             instance_dict['gt_mask'].append(torch.stack(mask_list))
             
-            # 3. load joints3d (49, 3)
+            # # 3. load joints3d (49, 3)  # 感觉这个应该是 3D keypoint loss
             joints_list = []
             joints_path = f'{instance_path}/joints3d'
             files = sorted([f for f in os.listdir(joints_path) if os.path.isfile(os.path.join(joints_path, f))])
@@ -195,9 +201,9 @@ class Datasets(object):
                 joints_list.append(img)
             instance_dict['joints3d'].append(torch.stack(joints_list))
 
-            # 4. load smplv2d (6890, 2)
+            # 4. load smplv2d
             smplv2d_list = []
-            smplv2d_path = f'{instance_path}/smplv2d'
+            smplv2d_path = f'{instance_path}/smplv2d'  #16*2
             files = sorted([f for f in os.listdir(smplv2d_path) if os.path.isfile(os.path.join(smplv2d_path, f))])
             for file in files:
                 file_path = os.path.join(smplv2d_path, file)
@@ -205,9 +211,9 @@ class Datasets(object):
                 smplv2d_list.append(img)
             instance_dict['smplv2d'].append(torch.stack(smplv2d_list))
             
-            # 5. other files
-            instance_dict['3d_info'].append(self.load_3d_info(f'{instance_path}/3d_info.txt'))
-            instance_dict['jointstate'].append(self.load_jointstate(f'{instance_path}/jointstate.txt'))
+            # # 5. other files
+            # instance_dict['3d_info'].append(self.load_3d_info(f'{instance_path}/3d_info.txt'))
+            # instance_dict['jointstate'].append(self.load_jointstate(f'{instance_path}/jointstate.txt'))
         
         return instance_dict
 
@@ -232,7 +238,7 @@ class Datasets(object):
         return bbox
 
     def cal_bbox_center(self, vertices, faces):
-        box = self.cal_box(vertices, faces)
+        box = self.cal_box(vertices, faces) #(2, 3, 2)
         mids = []
 
         for bbox in box:
@@ -242,32 +248,32 @@ class Datasets(object):
             mid = [mid_x, mid_y, mid_z]
             mids.append(mid)
 
-        return torch.Tensor(mids)
+        return torch.Tensor(mids) #torch.Size([2, 3])
 
 
     def load_targets(self, path, num_parts):
         path = path.strip()
         vs, fs = [], []
         for i in range(num_parts):
-            prim_p = os.path.join(path, str(i) + '.ply')
-            mesh = trimesh.load(prim_p, force='mesh', process=False)
-            vertices = mesh.vertices
+            prim_p = os.path.join(path, str(i) + '.ply')  #'/root/Prim3D/SQ_templates/microwave/plys/SQ_ply/0.ply'
+            mesh = trimesh.load(prim_p, force='mesh', process=False)  # 三维三角面网格 #模型的顶点、面和相关数据 <trimesh.Trimesh(vertices.shape=(656, 3), faces.shape=(1308, 3), name=`0.ply`)>
+            vertices = mesh.vertices 
             faces = mesh.faces
-            vertices = torch.Tensor(vertices)
-            faces = torch.Tensor(faces)
+            vertices = torch.Tensor(vertices) #torch.Size([656, 3])
+            faces = torch.Tensor(faces) #torch.Size([1308, 3])
 
             vs.append(vertices)
             fs.append(faces)
         
         # calculate centers
-        part_centers = self.cal_bbox_center(vs, fs)
+        part_centers = self.cal_bbox_center(vs, fs)  #计算给定一组顶点（vertices）和面（faces）组成的物体的边界盒（bounding boxes）的中心点坐标。函数最终返回一个包含所有中心点坐标的 PyTorch 张量（torch.Tensor）。
 
         return vs, fs, part_centers
     
     def load_template(self, template_path):
         
-        self.delta_rots, self.pred_rots, self.pred_sq = self.load_sqs(f'{template_path}/plys')
-        self.meshs = self.load_targets(f'{template_path}/plys/SQ_ply', 2)
+        self.delta_rots, self.pred_rots, self.pred_sq = self.load_sqs(f'{template_path}/plys')  #torch.Size([2, 3, 3]) torch.Size([2, 3, 3]) torch.Size([2, 5]) #这个应该是ground truth
+        self.meshs = self.load_targets(f'{template_path}/plys/SQ_ply', 2) #顶点（vertices）和面（faces）组成的物体的边界盒（bounding boxes）的中心点坐标
         self.joint_info = scipy.io.loadmat(f'{template_path}/joint_info.mat')
         self.part_centers = np.load(f'{template_path}/part_centers.npy')
     
@@ -281,9 +287,42 @@ class Datasets(object):
         return sq_dict, mesh_dict, self.joint_info, self.part_centers
 
     def __getitem__(self, index):
-        data_dict = {}
+        raw_data_dict = {}
         for key in self.data_key:
-            data_dict[key] = data_dict[key][index]
+            raw_data_dict[key] = self.data_list[key][index]
+
+        data_dict={}
+        data_dict["rgb_image"] = raw_data_dict["frames"]
+        
+        rgb= raw_data_dict["frames"]  #torch.Size([30, 3, 224, 224])
+        o_mask = raw_data_dict["gt_mask"] #torch.Size([30, 1, 224, 224])
+        o_mask_3ch=o_mask.repeat(1,3,1,1) #torch.Size([30, 3, 224, 224])
+        o_image = rgb * o_mask
+        data_dict["o_image"] = o_image
+
+        # data_dict["object_input_pts"]=raw_data_dict["smplv2d"]
+        # deform
+        joint_info = self.joint_info
+        data_dict["object_joint_tree" ] =joint_info["joint_tree"]
+        data_dict["object_primitive_align" ]= joint_info["primitive_align"]
+        data_dict["object_joint_parameter_leaf"] = joint_info["joint_parameter_leaf"]
+
+
+        data_dict["object_input_pts"] = self.meshs[0]
+        data_dict["init_object_old_center"] = self.meshs[2]
+
+        data_dict['joints3d'] = raw_data_dict['joints3d']
+
+
+
+
+
+        # object_image_np = object_image.permute(1,2,0).numpy()
+        # object_image_np = np.clip(object_image_np, 0, 1) * 255
+        # object_image_np = object_image_np.astype(np.uint8)
+        # output_image = Image.fromarray(object_image_np)
+        # output_image.save('/root/Prim3D/object_image_rendered.png')
+
 
         return data_dict
 

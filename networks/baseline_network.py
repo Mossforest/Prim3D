@@ -351,7 +351,7 @@ class ObjectNetwork_pts(nn.Module):
         for bone_i in range(bone_num):
             if bone_i == 0:
                 the_v = input_pts[primitive_align[bone_i]].clone().cuda()
-                the_old_center = old_centers[primitive_align[bone_i]].clone()
+                the_old_center = old_centers[primitive_align[bone_i]].clone()  #!!!
                 the_old_center = the_old_center[None, :].repeat(the_v.size(0), 1)
                 v_zero_centered = torch.sub(the_v, the_old_center[:, None, :].repeat(1, the_v.size(1), 1))
                 the_pred_scale = pred_part_scale[:, bone_i]
@@ -441,7 +441,7 @@ class ObjectNetwork_pts(nn.Module):
                 object_joint_tree, object_primitive_align, object_joint_parameter_leaf,
                 cam_trans,
                 layer, facet, bin):
-        batch_size = rgb_image.size(0)
+        batch_size = rgb_image.size(0)  #torch.Size([1, 3, 224, 224])
         # extract feature of the whole image
 
         ################### for DINOv2 ###################
@@ -449,13 +449,13 @@ class ObjectNetwork_pts(nn.Module):
         rgb_image = transform(rgb_image)
         whole_result = self.whole_vitextractor.forward_features(rgb_image)
         vit_feature_whole = whole_result['x_norm_patchtokens']
-        vit_feature_whole = torch.reshape(vit_feature_whole, (batch_size, 16, 16, -1))
+        vit_feature_whole = torch.reshape(vit_feature_whole, (batch_size, 16, 16, -1))  # #torch.Size([1, 16, 16, 384])
 
         transform = torchvision.transforms.Compose([torchvision.transforms.Normalize(mean=0.5, std=0.2)])
         o_image = transform(o_image)
         object_result = self.object_vitextractor.forward_features(o_image)
         vit_feature_object = object_result['x_norm_patchtokens']
-        vit_feature_object = torch.reshape(vit_feature_object, (batch_size, 16, 16, -1))
+        vit_feature_object = torch.reshape(vit_feature_object, (batch_size, 16, 16, -1))  #torch.Size([1, 16, 16, 384])
         ################### for DINOv2 ###################
 
         total_vit_feature = vit_feature_whole + vit_feature_object
@@ -465,16 +465,20 @@ class ObjectNetwork_pts(nn.Module):
         total_vit_feature = self.vitextractor_cnn(total_vit_feature)
         total_vit_feature = torch.reshape(total_vit_feature, (batch_size, -1))
 
-        joint_tree = object_joint_tree[0]
-        primitive_align = object_primitive_align[0]
-        joint_parameter_leaf = object_joint_parameter_leaf[0]
+        # joint_tree = object_joint_tree[0]  #(1,1,2)->(1,2)
+        joint_tree = object_joint_tree[0][0]  #(1,2)->(2)
+        # primitive_align = object_primitive_align[0]  #(1,1,2)->(1,2)
+        primitive_align = object_primitive_align[0][0]  #(1,1,2)->(1,2)
+        joint_parameter_leaf = object_joint_parameter_leaf[0] #(1,3,3)->(3,3)
+
+        init_object_old_center=init_object_old_center[0]  #??
 
         # mesh feature
         mesh_v = object_input_pts
         mesh_feats = []
         for bone_i in range(object_num_bones):
-            mesh_vi = mesh_v[primitive_align[bone_i]].clone().cuda()
-            mesh_feat_i = self.mesh_encoder(mesh_vi)
+            mesh_vi = mesh_v[primitive_align[bone_i]].clone().cuda()  #torch.Size([1, 873, 3])
+            mesh_feat_i = self.mesh_encoder(mesh_vi) #torch.Size([1, 8, 9])
             mesh_feat_i = torch.reshape(mesh_feat_i, (mesh_feat_i.size(0), -1))
             mesh_feats.append(mesh_feat_i)
         mesh_feats = torch.stack(mesh_feats, dim=1)  # in tree order, example: 0-laptop keyboard, 1-laptop screen

@@ -73,23 +73,23 @@ def distChamfer(a, b):
     return torch.min(P, 2)[0], torch.min(P, 1)[0], torch.min(P, 2)[1].int(), torch.min(P, 1)[1].int()
 
 
-def chamfer_loss(predictions, targets):
-    """Compute the bidirectional Chamfer loss between the target and the
-    predicted shape.
-    """
-    point_num = targets.size(1)
-    pred_points_num = predictions.size(1)
-    pred_select_idx = torch.randint(low=0, high=pred_points_num, size=(point_num,))
+# def chamfer_loss(predictions, targets):
+#     """Compute the bidirectional Chamfer loss between the target and the
+#     predicted shape.
+#     """
+#     point_num = targets.size(1)
+#     pred_points_num = predictions.size(1)
+#     pred_select_idx = torch.randint(low=0, high=pred_points_num, size=(point_num,))
 
-    preds = predictions[:, pred_select_idx, :]
-    # print ('preds.requires_grad', preds.requires_grad)
-    # os._exit(0)
-    if len(targets.size()) == 4:
-        targets = torch.reshape(targets, (targets.size(0), targets.size(2), targets.size(3)))
+#     preds = predictions[:, pred_select_idx, :]
+#     # print ('preds.requires_grad', preds.requires_grad)
+#     # os._exit(0)
+#     if len(targets.size()) == 4:
+#         targets = torch.reshape(targets, (targets.size(0), targets.size(2), targets.size(3)))
 
-    loss = p3dloss.chamfer_distance(preds, targets)
+#     loss = p3dloss.chamfer_distance(preds, targets)
 
-    return loss[0]
+#     return loss[0]
 
 
 def mseloss(input, target):

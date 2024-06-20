@@ -23,6 +23,9 @@ except ImportError:
 from datasets import Datasets
 from renderer_nvdiff import Nvdiffrast
 
+from networks.baseline_network import Network_pts
+import configparser
+# from myutils.losses import *
 
 """ taken from https://stackoverflow.com/questions/15008758/parsing-boolean-values-with-argparse"""
 def str2bool(v):
@@ -38,10 +41,10 @@ def str2bool(v):
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--mode', type=str, default='train', help='Determine if we run the code for training or testing. Chosen from [train, test]')
-parser.add_argument('--log_dir', type=str, default='/mnt/nas-new/home/chenxinyan/3d/term_project/output/logs')
+parser.add_argument('--log_dir', type=str, default='/root/Prim3D/output/logs')
 parser.add_argument('--gpu_id', type=int, default=0)
 # parser.add_argument('--output_directory', type=str, default='../../NewPrimReg_outputs_iccv/baseline/output_dir')
-parser.add_argument('--output_directory', type=str, default='/mnt/nas-new/home/chenxinyan/3d/term_project/output')
+parser.add_argument('--output_directory', type=str, default='/root/Prim3D/output')
 parser.add_argument('--experiment_tag', type=str, default='microwave')
 parser.add_argument('--device', type=str, default='cuda:0')
 # parser.add_argument('--vit_f_dim', type=int, default=3025) # dino
@@ -49,13 +52,18 @@ parser.add_argument('--epoch', type=int, default=200)
 parser.add_argument('--vit_f_dim', type=int, default=384) # dinov2
 # parser.add_argument('--res', type=int, default=112)
 parser.add_argument('--res', type=int, default=224)
-parser.add_argument('--batch_size_train', type=int, default=8, help='Batch size of the training dataloader.')
+parser.add_argument('--batch_size_train', type=int, default=1, help='Batch size of the training dataloader.')
 parser.add_argument('--batch_size_val', type=int, default=1, help='Batch size of the val dataloader.')
-parser.add_argument('--data_path', type=str, default='/mnt/nas-new/home/chenxinyan/3d/term_project/d3dhoi_video_data/microwave')
-parser.add_argument('--template_path', type=str, default='/mnt/nas-new/home/chenxinyan/3d/term_project/SQ_templates/microwave')
+parser.add_argument('--data_path', type=str, default='/root/Prim3D/d3dhoi_video_data/microwave')
+parser.add_argument('--template_path', type=str, default='/root/Prim3D/SQ_templates/microwave')
 parser.add_argument('--data_load_ratio', type=float, default=1.0)
 parser.add_argument('--save_every', type=int, default=200)
 parser.add_argument('--val_every', type=int, default=200)
+parser.add_argument('--config_file', type=str, default="config/tmp_config.yaml")
+parser.add_argument('--lr', type=float, default=0.001)
+parser.add_argument('--annealing_lr', type=bool, default=True)
+parser.add_argument('--continue_from_epoch', type=int, default=0)
+
 # parser.add_argument('--eval_images'
 
 args = parser.parse_args()
@@ -228,31 +236,49 @@ def train():
         epochs = config["training"].get("epochs", 500)
     else:
         epochs = args.epoch
+    
+    # from graphAE_weight.graphAE_config import GraphAEConfig=
+    # GraphAE_config=GraphAEConfig()
+    # config = configparser.ConfigParser()
+    # config.read("graphAE_weight/graphAE.config")
+    # print(config)
 
-    # net = # TODO: Create the network
-    # if torch.cuda.device_count() > 1:
-    #     net = torch.nn.DataParallel(net)
-    # net.cuda()
+    from myutils.graphAE_param import Parameters
+    GraphAE_config = Parameters()
+    GraphAE_config.read_config("graphAE_weight/my_graphAE.config")
+
+    # TODO: Create the network
+    net = Network_pts(
+        graphAE_param=GraphAE_config,
+        test_mode=False,  #?
+        model_type='dinov2_vits14',
+        stride=4, # 默认值
+        device=device,
+        vit_f_dim=args.vit_f_dim,
+    )
+    if torch.cuda.device_count() > 1:
+        net = torch.nn.DataParallel(net)
+    net.cuda()
 
     # Build an optimizer object to compute the gradients of the parameters
-    # optimizer = torch.optim.Adam(net.parameters(), lr=args.lr)
-    # if args.annealing_lr:
-    #     scheduler = CosineAnnealingWarmRestarts(optimizer, T_0=5, T_mult=2)
-    # # Load the checkpoints if they exist in the experiment directory
+    optimizer = torch.optim.Adam(net.parameters(), lr=args.lr)  #先不用 factory
+    if args.annealing_lr:
+        scheduler = CosineAnnealingWarmRestarts(optimizer, T_0=5, T_mult=2)
+    # Load the checkpoints if they exist in the experiment directory
     # load_checkpoints(net, optimizer, experiment_directory, args, device)
 
     # TODO: create the dataloader
     
     train_dataset = Datasets(data_path=args.data_path, template_path=args.template_path, train=True, image_size=args.res, data_load_ratio=args.data_load_ratio)
-    train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size_train, shuffle=True, num_workers=1, drop_last=True)
+    train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size_train, shuffle=True, num_workers=0, drop_last=True)
     val_dataset = Datasets(data_path=args.data_path, template_path=args.template_path, train=False, image_size=args.res)
-    val_dataloader = torch.utils.data.DataLoader(val_dataset, batch_size=args.batch_size_val, shuffle=False, num_workers=1)
+    val_dataloader = torch.utils.data.DataLoader(val_dataset, batch_size=args.batch_size_val, shuffle=False, num_workers=0)
     print ('Dataloader finished!')
     
     sq_template = train_dataset.get_template()
     sq_attr, sq_mesh, sq_joint_info, sq_part_centers = sq_template
     
-    breakpoint()
+    # breakpoint()
 
     # TODO: create the differtiable renderer
     renderer = Nvdiffrast(FOV=39.6)
@@ -269,13 +295,45 @@ def train():
             data_dict = X
 
             # TODO: load all the data you need from dataloader, not limited
-            image_names = data_dict['image_name']
-            rgb_image = data_dict['rgb'].cuda()
-            o_image = data_dict['o_rgb'].cuda()
-            object_white_mask = data_dict['o_mask'].cuda()
+            # image_names = data_dict['image_name']
+            # rgb_image = data_dict['rgb'].cuda()
+            # o_image = data_dict['o_rgb'].cuda()
+            # object_white_mask = data_dict['o_mask'].cuda()
+            # object_white_mask = data_dict['gt_mask'].cuda()
 
+            # predict_dict_list=[]
+            whole_rgb_image = data_dict['rgb_image']
+            whole_o_image = data_dict["o_image"]
             # TODO: pass the input data to the network and generate the predictions
-            pred_dict = net(...)
+            for frame_id in range(data_dict['rgb_image'].shape[1]):  #frame length    torch.Size([1, 30, 3, 224, 224])
+
+
+                # rgb_image = data_dict['rgb_image'][frame_id].cuda() 
+                # o_image = data_dict["o_image"][frame_id].cuda()
+
+                rgb_image= whole_rgb_image[:, frame_id, :, :, :].cuda() 
+                o_image = whole_o_image[:, frame_id, :, :, :].cuda() 
+
+                pred_dict = net(
+                    rgb_image = rgb_image ,  #没问题
+                    o_image = o_image,  #没问题
+                    object_input_pts= [x.cuda() for x in data_dict["object_input_pts"]],    #==
+                    init_object_old_center=data_dict["init_object_old_center"].cuda(), #==
+                    object_num_bones=2,
+                    object_joint_tree=data_dict["object_joint_tree"].cuda(),  # 找到了
+                    object_primitive_align=data_dict["object_primitive_align" ].cuda(),   # 找到了
+                    object_joint_parameter_leaf = data_dict["object_joint_parameter_leaf"].cuda(),  # 找到了
+                    cam_trans=None, #没用！
+                    layer=None,  #没用！
+                    facet=None,  #没用！
+                    bin=None # 没用
+                )
+
+                gt_3d_keypoint = data_dict['joints3d'][frame_id]
+
+                keypoint_loss=L1Loss(pred_dic,gt_3d_keypoint)
+
+                predict_dict_list.append(predict_dict)
 
             # TODO: compute loss functions
             loss = ...

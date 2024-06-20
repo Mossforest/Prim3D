@@ -186,10 +186,10 @@ class GraphAE(nn.Module):
     # a faster mode for testing
     # input_pc batch*in_pn*in_channel
     # out_pc batch*out_pn*out_channel
-    def forward_one_conv_layer_batch_during_test(self, in_pc, layer_info, is_final_layer=False):
+    def forward_one_conv_layer_batch_during_test(self, in_pc, layer_info, is_final_layer=False):  #in_pc: torch.Size([1, 873, 3])
         batch = in_pc.shape[0]
         in_channel, out_channel, in_pn, out_pn, weight_num, max_neighbor_num, neighbor_num_lst, neighbor_id_lstlst, conv_layer, residual_layer, residual_rate, neighbor_mask_lst, zeros_batch_outpn_outchannel = layer_info
-        in_pc_pad = torch.cat((in_pc, torch.zeros(batch, 1, in_channel).cuda()), 1)  # batch*(in_pn+1)*in_channel
+        in_pc_pad = torch.cat((in_pc, torch.zeros(batch, 1, in_channel).cuda()), 1)  # batch*(in_pn+1)*in_channel  #(1,1,3)  -> torch.Size([1, 874, 3])
         in_neighbors = in_pc_pad[:, neighbor_id_lstlst]  # batch*out_pn*max_neighbor_num*in_channel
 
         ####compute output of convolution layer####
