@@ -32,6 +32,7 @@ import numpy as np
 # import pytorch3d.loss as p3dloss
 from lapsolver import solve_dense
 import torch.nn.functional as F
+from pytorch3d.loss import chamfer_distance
 
 
 
@@ -60,17 +61,23 @@ def distChamfer(a, b):
     -idx of closest point on a of points from b
     Works for pointcloud of any dimension
     """
-    x, y = a, b
-    bs, num_points_x, points_dim = x.size()
-    bs, num_points_y, points_dim = y.size()
+    a = a.T.unsqueeze(2).cuda()
+    b = b.T.unsqueeze(2).cuda()
+    loss, norm_loss = chamfer_distance(a, b)
+    return loss
+    
+    # x, y = a, b
+    # breakpoint()
+    # bs, num_points_x, points_dim = x.size()
+    # bs, num_points_y, points_dim = y.size()
 
-    xx = torch.pow(x, 2).sum(2)
-    yy = torch.pow(y, 2).sum(2)
-    zz = torch.bmm(x, y.transpose(2, 1))
-    rx = xx.unsqueeze(1).expand(bs, num_points_y, num_points_x) # Diagonal elements xx
-    ry = yy.unsqueeze(1).expand(bs, num_points_x, num_points_y) # Diagonal elements yy
-    P = rx.transpose(2, 1) + ry - 2 * zz
-    return torch.min(P, 2)[0], torch.min(P, 1)[0], torch.min(P, 2)[1].int(), torch.min(P, 1)[1].int()
+    # xx = torch.pow(x, 2).sum(2)
+    # yy = torch.pow(y, 2).sum(2)
+    # zz = torch.bmm(x, y.transpose(2, 1))
+    # rx = xx.unsqueeze(1).expand(bs, num_points_y, num_points_x) # Diagonal elements xx
+    # ry = yy.unsqueeze(1).expand(bs, num_points_x, num_points_y) # Diagonal elements yy
+    # P = rx.transpose(2, 1) + ry - 2 * zz
+    # return torch.min(P, 2)[0], torch.min(P, 1)[0], torch.min(P, 2)[1].int(), torch.min(P, 1)[1].int()
 
 
 # def chamfer_loss(predictions, targets):

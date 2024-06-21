@@ -5,7 +5,8 @@ import numpy as np
 from sympy import solve, symbols, diff, cos, sin, sign, Function, S
 
 import sys
-sys.path.append('/root/Prim3D/learnable_primitives')
+# sys.path.append('/root/Prim3D/learnable_primitives')
+sys.path.append('/mnt/nas-new/home/chenxinyan/3d/term_project/learnable_primitives')
 from fast_sampler import step_eta as fast_step_eta,\
     step_omega as fast_step_omega, collect_etas as fast_collect_etas,\
     collect_omegas as fast_collect_omegas, fast_sample, fast_sample_on_batch

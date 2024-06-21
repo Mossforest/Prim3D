@@ -12,6 +12,8 @@
 # !docs/keep.md
 d3dhoi_video_data/
 output/
+__pycache__/
+build
 
 *.pth
 *.zip

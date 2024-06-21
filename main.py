@@ -23,9 +23,10 @@ except ImportError:
 from datasets import Datasets
 from renderer_nvdiff import Nvdiffrast
 
-# from networks.baseline_network import Network_pts
+from networks.baseline_network import Network_pts
 import configparser
-from myutils.losses import mseloss
+from myutils.losses import mseloss, distChamfer
+from learnable_primitives.loss_functions import sample_surface_vertices
 
 class Mesh:
     def __init__(self, vertices, faces, colors):
@@ -70,8 +71,6 @@ parser.add_argument('--config_file', type=str, default="config/tmp_config.yaml")
 parser.add_argument('--lr', type=float, default=0.001)
 parser.add_argument('--annealing_lr', type=bool, default=True)
 parser.add_argument('--continue_from_epoch', type=int, default=0)
-
-# parser.add_argument('--eval_images'
 
 args = parser.parse_args()
 
@@ -167,7 +166,6 @@ def save_checkpoints(epoch, model, optimizer, experiment_directory, args):
 
 
 def load_checkpoints(model, optimizer, experiment_directory, args, device):
-    breakpoint()
     if args.checkpoint_model_path is None:
         model_files = [
             f for f in os.listdir(experiment_directory)
@@ -244,12 +242,6 @@ def train():
     else:
         epochs = args.epoch
     
-    # from graphAE_weight.graphAE_config import GraphAEConfig=
-    # GraphAE_config=GraphAEConfig()
-    # config = configparser.ConfigParser()
-    # config.read("graphAE_weight/graphAE.config")
-    # print(config)
-
     from myutils.graphAE_param import Parameters
     GraphAE_config = Parameters()
     GraphAE_config.read_config("graphAE_weight/my_graphAE.config")
@@ -275,7 +267,6 @@ def train():
     # load_checkpoints(net, optimizer, experiment_directory, args, device)
 
     # TODO: create the dataloader
-    
     train_dataset = Datasets(data_path=args.data_path, template_path=args.template_path, train=True, image_size=args.res, data_load_ratio=args.data_load_ratio)
     train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size_train, shuffle=True, num_workers=0, drop_last=True)
     val_dataset = Datasets(data_path=args.data_path, template_path=args.template_path, train=False, image_size=args.res)
@@ -285,8 +276,6 @@ def train():
     sq_template = train_dataset.get_template()
     sq_attr, sq_mesh, sq_joint_info, sq_part_centers = sq_template
     
-    # breakpoint()
-
     # TODO: create the differtiable renderer
     renderer = Nvdiffrast(FOV=39.6)
     print ('Renderer set!')
@@ -302,71 +291,83 @@ def train():
             data_dict = X
 
             # TODO: load all the data you need from dataloader, not limited
-            # image_names = data_dict['image_name']
-            # rgb_image = data_dict['rgb'].cuda()
-            # o_image = data_dict['o_rgb'].cuda()
-            # object_white_mask = data_dict['o_mask'].cuda()
-            # object_white_mask = data_dict['gt_mask'].cuda()
+            whole_rgb_image = data_dict['rgb_image'].cuda() #torch.Size([1, 27, 3, 224, 224])
+            whole_o_image = data_dict["o_image"].cuda() #torch.Size([1, 27, 3, 224, 224])
+            object_white_mask = data_dict['gt_mask'].cuda() #torch.Size([1, 27, 1, 224, 224])
+            object_input_pts= [x.cuda() for x in data_dict["object_input_pts"]]
+            init_object_old_center=data_dict["init_object_old_center"].cuda()
+            object_joint_tree = data_dict["object_joint_tree"].cuda()
+            object_primitive_align = data_dict["object_primitive_align" ].cuda()
+            object_joint_parameter_leaf = data_dict["object_joint_parameter_leaf"].cuda()
+            global_faces = [x.cuda() for x in data_dict["faces"]]
+            
+            sq_dict, mesh_dict, joint_info, part_centers = train_dataset.get_template()
+            sq_params = sq_dict['pred_sq']  # (2, 5)
+            sq_rots = sq_dict['pred_rots']  # (2, 3, 3)
 
-            predict_dict_list=[]
-            whole_rgb_image = data_dict['rgb_image']
-            whole_o_image = data_dict["o_image"]
+            # 计算每帧平均loss
+            total_frame_loss = 0.
+            frame_num = whole_rgb_image.shape[1]
             # TODO: pass the input data to the network and generate the predictions
-            for frame_id in range(data_dict['rgb_image'].shape[1]):  #frame length    torch.Size([1, 30, 3, 224, 224])
-
-
-                # rgb_image = data_dict['rgb_image'][frame_id].cuda() 
-                # o_image = data_dict["o_image"][frame_id].cuda()
-
-                rgb_image= whole_rgb_image[:, frame_id, :, :, :].cuda() 
-                o_image = whole_o_image[:, frame_id, :, :, :].cuda() 
-
+            for frame_id in range(frame_num):  #frame length
+                rgb_image= whole_rgb_image[:, frame_id, :, :, :]  #torch.Size([1, 3, 224, 224])
+                o_image = whole_o_image[:, frame_id, :, :, :] #torch.Size([1, 3, 224, 224])
+                
                 pred_dict = net(
-                    rgb_image = rgb_image ,  #没问题
-                    o_image = o_image,  #没问题
-                    object_input_pts= [x.cuda() for x in data_dict["object_input_pts"]],    #==
-                    init_object_old_center=data_dict["init_object_old_center"].cuda(), #==
+                    rgb_image=rgb_image,  #没问题
+                    o_image=o_image,  #没问题
+                    object_input_pts=object_input_pts,    #==
+                    init_object_old_center=init_object_old_center, #==
                     object_num_bones=2,
-                    object_joint_tree=data_dict["object_joint_tree"].cuda(),  # 找到了
-                    object_primitive_align=data_dict["object_primitive_align" ].cuda(),   # 找到了
-                    object_joint_parameter_leaf = data_dict["object_joint_parameter_leaf"].cuda(),  # 找到了
+                    object_joint_tree=object_joint_tree,  # 找到了
+                    object_primitive_align=object_primitive_align,   # 找到了
+                    object_joint_parameter_leaf=object_joint_parameter_leaf,  # 找到了
                     cam_trans=None, #没用！
-                    layer=None,  #没用！
-                    facet=None,  #没用！
-                    bin=None # 没用
+                    layer=None, #没用！
+                    facet=None, #没用！
+                    bin=None    #没用
                 )
 
                 # Part segment masks loss
+                seg_map_list=[]
                 for i in range(2):
                     vertices = pred_dict['deformed_object'][i][0] #torch.Size([1, 656, 3])
-                    faces = train_dataset.meshs[1][i]  #torch.Size([1308, 3])
+                    faces = global_faces[i][0].to(dtype=torch.int32)  #torch.Size([1308, 3])
                     num_vertices = vertices.shape[0]  # 656
-                    colors = torch.rand(num_vertices,3).cuda() #torch.Size([656, 3])
+                    colors = torch.ones(num_vertices,3).cuda() #torch.Size([656, 3])  #白色的mask
                     mesh = Mesh(vertices,faces,colors)
-                    seg_map = renderer(mesh,(0,0,0,0,224,224),focal_length=0) #focal_length用不上
+                    seg_map = renderer(mesh,(0,0,0,0,224,224),focal_length=0) #focal_length用不上  #torch.Size([1, 224, 224, 3])
+                    seg_map = seg_map[0].permute(2,0,1) #torch.Size([3, 224, 224])
+                    seg_map = seg_map[0].unsqueeze(0)
+                    seg_map_list.append(seg_map)
+                whole_seg_map = seg_map_list[0]+seg_map_list[1] #torch.Size([1, 224, 224])
+                part_segment_mask_loss = mseloss(whole_seg_map, object_white_mask[0][frame_id])
+
                     
-
-
                 # TODO 3D keypoint loss
                 pred_3d_keypoint = pred_dict['deformed_object_pivot_loc']
                 # gt_3d_keypoint = ???
                 # keypoint_loss=L1Loss(pred_3d_keypoint,gt_3d_keypoint)
 
-
                 # Joint angle loss
-                joint_angle_loss = mseloss(data_dict['jointstate'][frame_id], pred_dict['object_pred_angle_leaf']) 
+                pred_angle= pred_dict['object_pred_angle_leaf'][0][0]
+                gt_angle = data_dict['jointstate'][0][frame_id].cuda()
+                joint_angle_loss = mseloss(pred_angle, gt_angle) * 10
                 
-                
-                # TODO surface vertices loss
-                pred_3d_keypoint = pred_dict['deformed_object_pivot_loc']
-                # gt_3d_keypoint = ???
-                # keypoint_loss=L1Loss(pred_3d_keypoint,gt_3d_keypoint)
+                # surface vertices loss
+                pred_rot = pred_dict['object_pred_rotmat_root'].squeeze()  # (1, 3, 3)
+                pred_trans = pred_dict['object_pred_total_trans'].view(3, 1)  # (1, 1, 3)
+                surface_vertices_loss = 0
+                for i in range(2):
+                    pred_surface_sample = sample_surface_vertices(sq_params[i], pred_rot, pred_trans)
+                    gt_surface_sample = sample_surface_vertices(sq_params[i], sq_rots[i], torch.zeros((3, 1)))
+                    surface_vertices_loss += distChamfer(pred_surface_sample, gt_surface_sample)
 
-
-                predict_dict_list.append(pred_dict)
+                loss = part_segment_mask_loss + joint_angle_loss + surface_vertices_loss
+                total_frame_loss += loss
 
             # TODO: compute loss functions
-            loss = ...
+            loss = total_frame_loss / frame_num 
 
             # TODO: write the loss to tensorboard
             writer.add_scalar('train/loss', loss, epoch)
@@ -391,6 +392,8 @@ def train():
                 experiment_directory,
                 args
             )
+        
+        continue
 
         if epoch % args.val_every == 0:
             print("====> Validation Epoch ====>")
@@ -398,13 +401,48 @@ def train():
 
             total_eval_loss = 0.
             iter_num = 0.
-            for imgi, X in enumerate(val_dataloader):
+            for imgi, X in enumerate(tqdm(val_dataloader)):
                 # TODO: load data and generate the predictions, loss
                 iter_num += 1
 
                 data_dict = X
+                whole_rgb_image = data_dict['rgb_image'].cuda() #torch.Size([1, 27, 3, 224, 224])
+                whole_o_image = data_dict["o_image"].cuda() #torch.Size([1, 27, 3, 224, 224])
+                object_white_mask = data_dict['gt_mask'].cuda() #torch.Size([1, 27, 1, 224, 224])
+                object_input_pts= [x.cuda() for x in data_dict["object_input_pts"]]
+                init_object_old_center=data_dict["init_object_old_center"].cuda()
+                object_joint_tree = data_dict["object_joint_tree"].cuda()
+                object_primitive_align = data_dict["object_primitive_align" ].cuda()
+                object_joint_parameter_leaf = data_dict["object_joint_parameter_leaf"].cuda()
+                global_faces = [x.cuda() for x in data_dict["faces"]]
 
-                pred_dict = net(...)
+                # 计算每帧平均loss
+                total_frame_loss = 0.
+                frame_num = whole_rgb_image.shape[1]
+                
+                pred_dict_list = []
+
+                for frame_id in range(frame_num):  #frame length
+                    rgb_image= whole_rgb_image[:, frame_id, :, :, :]  #torch.Size([1, 3, 224, 224])
+                    o_image = whole_o_image[:, frame_id, :, :, :] #torch.Size([1, 3, 224, 224])
+                    
+                    pred_dict = net(
+                        rgb_image=rgb_image,  #没问题
+                        o_image=o_image,  #没问题
+                        object_input_pts=object_input_pts,    #==
+                        init_object_old_center=init_object_old_center, #==
+                        object_num_bones=2,
+                        object_joint_tree=object_joint_tree,  # 找到了
+                        object_primitive_align=object_primitive_align,   # 找到了
+                        object_joint_parameter_leaf=object_joint_parameter_leaf,  # 找到了
+                        cam_trans=None, #没用！
+                        layer=None, #没用！
+                        facet=None, #没用！
+                        bin=None    #没用
+                    )
+                    pred_dict['rgb_image'] = rgb_image
+                    pred_dict['o_image'] = o_image
+                    pred_dict_list.append(pred_dict)
 
                 if epoch % args.save_every == 0:
                     out_path = os.path.join(args.output_directory, experiment_tag)
@@ -415,6 +453,23 @@ def train():
                         os.makedirs(out_path)
 
                     # TODO: visualze the predicted results
+                    from myutils.visualize_baseline import visualize_predictions_training_data
+                    object_fs=[]
+                    for f in global_faces:
+                        object_fs.append(f.to(dtype=torch.int32))  #torch.Size([1308, 3])
+                    
+                    for frame_id in range(frame_num):
+                        pred_dict = pred_dict_list[frame_id]
+                        
+                        pred_object_vs = pred_dict['deformed_object'] #torch.Size([1, 656, 3])
+                        seg_mask_image = object_white_mask[:, frame_id, :, :, :]
+                        rgb_image = pred_dict['rgb_image']
+                        image_names = data_dict['img_id']
+                        visualize_predictions_training_data(
+                            pred_object_vs, object_fs,
+                            rgb_image,
+                            image_names, out_path, frame_id
+                        )
 
             print("====> Validation Epoch ====>")
 

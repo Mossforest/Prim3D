@@ -54,7 +54,7 @@ class Datasets(object):
         self.image_size = image_size
         self.transform = T.Resize((self.image_size, self.image_size))
         
-        self.data_key = ['frames', 'gt_mask', 'joints3d', 'smplv2d', '3d_info', 'jointstate']
+        self.data_key = ['frames', 'gt_mask', 'joints3d', 'smplv2d', '3d_info', 'jointstate', 'img_id']
         # self.data_key = ['frames', 'gt_mask' ]
 
         self.data_list = self.load_data(data_path, data_load_ratio)
@@ -214,6 +214,7 @@ class Datasets(object):
             # 5. other files
             instance_dict['3d_info'].append(self.load_3d_info(f'{instance_path}/3d_info.txt'))
             instance_dict['jointstate'].append(self.load_jointstate(f'{instance_path}/jointstate.txt'))
+            instance_dict['img_id'].append(instance_path.split('/')[-1])
         
         return instance_dict
 
@@ -275,6 +276,7 @@ class Datasets(object):
         self.delta_rots, self.pred_rots, self.pred_sq = self.load_sqs(f'{template_path}/plys')  #torch.Size([2, 3, 3]) torch.Size([2, 3, 3]) torch.Size([2, 5]) #这个应该是ground truth
         self.meshs = self.load_targets(f'{template_path}/plys/SQ_ply', 2) #顶点（vertices）和面（faces）组成的物体的边界盒（bounding boxes）的中心点坐标
         self.joint_info = scipy.io.loadmat(f'{template_path}/joint_info.mat')
+        
         self.part_centers = np.load(f'{template_path}/part_centers.npy')
     
     def get_template(self):
@@ -293,6 +295,8 @@ class Datasets(object):
 
         data_dict={}
         data_dict["rgb_image"] = raw_data_dict["frames"]
+        data_dict['gt_mask']= raw_data_dict['gt_mask']
+        data_dict['img_id'] = raw_data_dict['img_id']
         
         rgb= raw_data_dict["frames"]  #torch.Size([30, 3, 224, 224])
         o_mask = raw_data_dict["gt_mask"] #torch.Size([30, 1, 224, 224])
@@ -300,30 +304,17 @@ class Datasets(object):
         o_image = rgb * o_mask
         data_dict["o_image"] = o_image
 
-        # data_dict["object_input_pts"]=raw_data_dict["smplv2d"]
         # deform
         joint_info = self.joint_info
         data_dict["object_joint_tree" ] =joint_info["joint_tree"]
         data_dict["object_primitive_align" ]= joint_info["primitive_align"]
         data_dict["object_joint_parameter_leaf"] = joint_info["joint_parameter_leaf"]
 
-
         data_dict["object_input_pts"] = self.meshs[0]
+        data_dict["faces"] = self.meshs[1]
         data_dict["init_object_old_center"] = self.meshs[2]
 
         data_dict['jointstate'] = raw_data_dict['jointstate']
-
-
-
-
-
-        # object_image = o_image[0]
-        # object_image_np = object_image.permute(1,2,0).numpy()
-        # object_image_np = np.clip(object_image_np, 0, 1) * 255
-        # object_image_np = object_image_np.astype(np.uint8)
-        # output_image = Image.fromarray(object_image_np)
-        # output_image.save('/root/Prim3D/object_image_rendered.png')
-
 
         return data_dict
 

@@ -79,7 +79,7 @@ class ViTExtractor:
             # model = torch.hub.load('facebookresearch/dinov2:main', model_type)
             model = torch.hub.load('facebookresearch/dinov2:main', model_type, pretrained=False)  #真的要等于false吗
             # model.load_state_dict(torch.load('../../dinov2_weights/dinov2_vits14_pytorch1.pth'))
-            msg= model.load_state_dict(torch.load('/root/Prim3D/dinov2_vits14_pretrain.pth'),strict=False)
+            msg= model.load_state_dict(torch.load('/mnt/nas-new/home/chenxinyan/3d/term_project/dinov2_vits14_pretrain.pth'),strict=False)
             print(msg)
         else:  # model from timm -- load weights from timm to dino model (enables working on arbitrary size images).
             temp_model = timm.create_model(model_type, pretrained=True)

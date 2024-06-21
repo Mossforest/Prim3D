@@ -8,9 +8,6 @@ import torch
 import numpy as np
 import pytorch3d.transforms
 
-os.system("Xvfb :99 -screen 0 1024x768x24 &")
-os.environ['DISPLAY'] = ':99'
-
 class Nvdiffrast(object):
     def __init__(self, FOV=60, height=512, width=512, focal_length=None):
         if focal_length is None:
@@ -87,25 +84,9 @@ class Nvdiffrast(object):
         return P
 
 
-
-    # def render_seg_map(self, v_pos_clip, faces, colors, render_reso):
-    #     glctx = dr.RasterizeGLContext()
-    #     with dr.DepthPeeler(glctx, v_pos_clip, faces, render_reso) as peeler:
-    #         seg_map_list = []
-    #         for layer_idx in range(1):  # 如果你只需要第一个图层，可以直接用range(1)
-    #             rast, _ = peeler.rasterize_next_layer()
-    #             B, H, W, _ = rast.shape
-
-    #             seg_map, _ = self.interpolate(colors[None, ...], rast, faces)
-    #             seg_map_list.append(seg_map)
-
-    #     return seg_map_list[0]
-
-# 示例调用
-# seg_map = self.render_seg_map(v_pos_clip, faces, colors, render_reso)
-
     def render_seg_map(self, v_pos_clip, faces, colors, render_reso):
-        glctx = dr.RasterizeGLContext()
+        # glctx = dr.RasterizeGLContext() 这样报错
+        glctx = dr.RasterizeCudaContext()
         with dr.DepthPeeler(glctx, v_pos_clip, faces, render_reso) as peeler:
             for layer_idx in range(1):
                 rast, _ = peeler.rasterize_next_layer()
@@ -113,7 +94,7 @@ class Nvdiffrast(object):
 
                 seg_map, _ = self.interpolate(colors[None, ...], rast, faces)
 
-        return seg_map
+        return seg_map  #torch.Size([1, 224, 224, 3])
 
     def __call__(self, mesh, image_pad_info, focal_length):  # 用这个函数
         verts = mesh.vertices
@@ -135,7 +116,7 @@ class Nvdiffrast(object):
 
         seg_map = self.render_seg_map(v_pos_clip, faces, mesh.colors, render_reso)  # torch.Size([1, ori_h, ori_w, 3])
 
-        return seg_map
+        return seg_map  #torch.Size([1, 224, 224, 3])
 
 
 class NvdiffrastPartIdx(object):

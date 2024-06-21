@@ -6,6 +6,7 @@ from .primitives import fexp, cuboid_inside_outside_function, \
     inside_outside_function, points_to_cuboid_distances, \
     transform_to_primitives_centric_system, deform, sq_volumes
 from .regularizers import get as get_regularizer
+from equal_distance_sampler_sq import EqualDistanceSamplerSQ
 
 
 def sampling_from_parametric_space_to_equivalent_points(
@@ -23,6 +24,7 @@ def sampling_from_parametric_space_to_equivalent_points(
                       axis for the M primitives
         epsilons: Tensor with size BxMx2, containing the shape along the
                   latitude and the longitude for the M primitives
+        sq_param: a1, a2, a3, e1, e2, shape = (5,)  ->  BxMx5
 
     Returns:
     ---------
@@ -31,14 +33,10 @@ def sampling_from_parametric_space_to_equivalent_points(
         N: Tensor of size BxMxSx3 that contains the normals of the S sampled
            points from the surface of each primitive
     """
-    # Allocate memory to store the sampling steps
-    B = shape_params.shape[0]  # batch size
-    M = shape_params.shape[1]  # number of primitives
-    S = sq_sampler.n_samples
-
+    
     etas, omegas = sq_sampler.sample_on_batch(
-        shape_params.detach().cpu().numpy(),
-        epsilons.detach().cpu().numpy()
+        shape_params.detach().cpu().numpy(),  # a1, a2, a3
+        epsilons.detach().cpu().numpy()   # e1, e2
     )
     # Make sure we don't get nan for gradients
     etas[etas == 0] += 1e-6
@@ -156,156 +154,93 @@ def sample_uniformly_from_cubes_surface(shape_params, epsilons, sampler):
     assert X_SQ.shape == (B, M, S, 3)
     return X_SQ, normals
 
+def sq_surface(a1, a2, a3, e1, e2, eta, omega):
+    eta = torch.Tensor(eta)
+    omega = torch.Tensor(omega)
+    x = a1 * fexp(np.cos(eta), e1) * fexp(np.cos(omega), e2)
+    y = a2 * fexp(np.cos(eta), e1) * fexp(np.sin(omega), e2)
+    z = a3 * fexp(np.sin(eta), e1)
+    return x, y, z
 
-def euclidean_dual_loss(
-    y_hat,
-    y_target,
-    regularizer_terms,
-    sampler,
-    options
-):
+def sample_surface_vertices(sq_params, R, t, n_samples=100):
+    """Computes a SQ given a set of parameters and saves it into a np array
     """
-    Arguments:
-    ----------
-        y_hat: List of Tensors containing the predictions of the network
-        y_target: Tensor with size BxNx6 with the N points from the target
-                  object and their corresponding normals
-        regularizer_terms: dictionary with the various regularizers, on the
-                           volume of the primitives, the Bernoullis etc.
-        sampler: An object of either CuboidSampler or EqualDistanceSampler
-                 depending on the type of the primitive we are using
-        options: A dictionary with various options
+    a1, a2, a3, e1, e2 = sq_params
+    assert R.shape == (3, 3)
+    assert t.shape == (3, 1)
 
-    Returns:
-    --------
-        the loss
-    """
-    # If use_cuboids is true then use 3D cuboids as geometric primitives. If
-    # use_sq is true use SQs as geometric primitives. If none of the above is
-    # true the default geometric primitive is cuboidal superquadrics, namely
-    # SQs with \epsilon_1=\epsilon_2=0.25
-    use_cuboids = options.get("use_cuboids", False)
-    use_sq = options.get("use_sq", False)
+    eta = np.linspace(-np.pi/2, np.pi/2, n_samples, endpoint=True)
+    omega = np.linspace(-np.pi, np.pi, n_samples, endpoint=True)
+    eta, omega = np.meshgrid(eta, omega)
+    x, y, z = sq_surface(a1, a2, a3, e1, e2, eta, omega)
 
-    use_chamfer = options.get("use_chamfer", False)
-    loss_weights = options.get(
-        "loss_weights",
-        {"pcl_to_prim_weight": 1.0, "prim_to_pcl_weight": 1.0}
-    )
+    # Get an array of size 3x10000 that contains the points of the SQ
+    points = torch.Tensor(np.stack([x, y, z]).reshape(3, -1)).to(R.device)
+    t = t.to(R.device)
+    points_transformed = R.T.matmul(points) + t
+    
+    return points_transformed
 
-    gt_normals = y_target[:, :, 3:6]
-    gt_points = y_target[:, :, :3]
-    # Make sure that everything has the right shape
-    assert gt_points.shape[-1] == 3
+# def sample_surface_vertices(
+#     gt_points,
+#     pred_dict,
+#     sq_params,
+#     B, N, M=2,  # batch_size, number of points per sample, number of primitives
+#     n_samples=100,# number of points sampled from the SQ
+# ):
+#     S = n_samples
+#     sqqq = sq_params.unsqueeze(0).expand(B, M, -1)
+#     shapes = sqqq[:, :, :3]
+#     epsilons = sqqq[:, :, 3:]
 
-    # Declare some variables
-    B = gt_points.shape[0]  # batch size
-    N = gt_points.shape[1]  # number of points per sample
-    M = y_hat[0].shape[1]  # number of primitives
-    S = sampler.n_samples  # number of points sampled from the SQ
+#     # sampler
+#     sampler = EqualDistanceSamplerSQ(n_samples, D_eta=0.005, D_omega=0.005,
+#                  omega_initial=-np.pi+0.001, eta_initial=-np.pi/2+0.001)
 
-    probs = y_hat[0].view(B, M)
-    translations = y_hat[1].view(B, M, 3)
-    rotations = y_hat[2].view(B, M, 4)
-    shapes = y_hat[3].view(B, M, 3)
-    epsilons = y_hat[4].view(B, M, 2)
-    tapering_params = y_hat[5].view(B, M, 2)
+#     # probs = pred_dict[''].view(B, M)
+#     translations = pred_dict['object_pred_total_trans'].view(B, M, 3)
+#     rotations = pred_dict['object_pred_rotamat_root'].view(B, M, 4)
+#     tapering_params = pred_dict[5].view(B, M, 2)
 
-    # Transform the 3D points from world-coordinates to primitive-centric
-    # coordinates with size BxNxMx3
-    X_transformed = transform_to_primitives_centric_system(
-        gt_points,
-        translations,
-        rotations
-    )
 
-    # Based on the shape of the primitive, do the sampling either on the
-    # surface of the SQ or on the surface of the cuboid
-    if use_cuboids:
-        sample_points_on_surface = sample_uniformly_from_cubes_surface
-    else:
-        sample_points_on_surface =\
-            sampling_from_parametric_space_to_equivalent_points
+#     # Transform the 3D points from world-coordinates to primitive-centric
+#     # coordinates with size BxNxMx3
+#     X_transformed = transform_to_primitives_centric_system(
+#         gt_points,
+#         translations,
+#         rotations
+#     )
 
-    # Get the coordinates of the sampled points on the surfaces of the SQs,
-    # with size BxMxSx3
-    X_SQ, normals = sample_points_on_surface(
-        shapes,
-        epsilons,
-        sampler
-    )
-    X_SQ = deform(X_SQ, shapes, tapering_params)
+#     # Get the coordinates of the sampled points on the surfaces of the SQs,
+#     # with size BxMxSx3
+#     X_SQ, _ = sampling_from_parametric_space_to_equivalent_points(
+#         shapes,
+#         epsilons,
+#         sampler
+#     )
+#     X_SQ = deform(X_SQ, shapes, tapering_params)
 
-    # Make the normals unit vectors
-    normals_norm = normals.norm(dim=-1).view(B, M, S, 1)
-    normals = normals / normals_norm
+#     # Compute the pairwise Euclidean distances between points sampled on the
+#     # surface of the SQ (X_SQ) with points sampled on the surface of the target
+#     # object (X_transformed)
+#     # In the code we do everything at once, but this comment helps understand
+#     # what we are actually doing
+#     # t = X_transformed.permute(0, 2, 1, 3)  # now X_transformed has size
+#     # BxMxNx3
+#     # xx_sq = X_sq.unsqueeze(3)  # now xx_sq has size BxMxSx1x3
+#     # t = t.unsqueeze(2)  # now t has size BxMx1xNx3
+#     V = (X_SQ.unsqueeze(3) - (X_transformed.permute(0, 2, 1, 3)).unsqueeze(2))
+#     assert V.shape == (B, M, S, N, 3)
+#     # Now we can compute the distances from every point in the surface of the
+#     # SQ to every point on the target object transformed in every
+#     # primitive-based coordinate system
+#     # D = torch.sum((xx_sq - t)**2, -1)  # D has size BxMxSxN
+#     # TODO: Should I add the SQRT, now we are computing the squared distances
+#     D = torch.sum((V)**2, -1)
+#     assert D.shape == (B, M, S, N)
 
-    # Make sure that everything has the right size
-    assert X_SQ.shape == (B, M, S, 3)
-    assert normals.shape == (B, M, S, 3)
-    assert X_transformed.shape == (B, N, M, 3)
-    # Make sure that the normals are unit vectors
-    assert torch.sqrt(torch.sum(normals ** 2, -1)).sum() == B*M*S
 
-    # Compute the pairwise Euclidean distances between points sampled on the
-    # surface of the SQ (X_SQ) with points sampled on the surface of the target
-    # object (X_transformed)
-    # In the code we do everything at once, but this comment helps understand
-    # what we are actually doing
-    # t = X_transformed.permute(0, 2, 1, 3)  # now X_transformed has size
-    # BxMxNx3
-    # xx_sq = X_sq.unsqueeze(3)  # now xx_sq has size BxMxSx1x3
-    # t = t.unsqueeze(2)  # now t has size BxMx1xNx3
-    V = (X_SQ.unsqueeze(3) - (X_transformed.permute(0, 2, 1, 3)).unsqueeze(2))
-    assert V.shape == (B, M, S, N, 3)
-    # Now we can compute the distances from every point in the surface of the
-    # SQ to every point on the target object transformed in every
-    # primitive-based coordinate system
-    # D = torch.sum((xx_sq - t)**2, -1)  # D has size BxMxSxN
-    # TODO: Should I add the SQRT, now we are computing the squared distances
-    D = torch.sum((V)**2, -1)
-    assert D.shape == (B, M, S, N)
-
-    pcl_to_prim, inside, debug_stats = pcl_to_prim_loss(
-        [probs, translations, rotations, shapes, epsilons, tapering_params],
-        X_transformed,
-        D,
-        use_cuboids,
-        use_sq,
-        use_chamfer
-    )
-    assert inside is None or inside.shape == (B, N, M)
-
-    prim_to_pcl = prim_to_pcl_loss(
-        y_hat,
-        V,
-        normals,
-        inside,
-        D,
-        use_chamfer
-    )
-
-    # Compute any regularizer terms
-    regularizers = get_regularizer_term(
-        y_hat,
-        debug_stats["F"],
-        X_SQ,
-        regularizer_terms
-    )
-
-    reg_values = get_regularizer_weights(
-        regularizers,
-        regularizer_terms
-    )
-    debug_stats["regularizer_terms"] = reg_values
-    debug_stats["pcl_to_prim_loss"] = pcl_to_prim
-    debug_stats["prim_to_pcl_loss"] = prim_to_pcl
-
-    # Sum up the regularization terms
-    regs = sum(reg_values.values())
-    w1 = loss_weights["pcl_to_prim_weight"]
-    w2 = loss_weights["prim_to_pcl_weight"]
-    return w1 * pcl_to_prim + w2 * prim_to_pcl + regs, debug_stats
+#     return X_SQ
 
 
 def pcl_to_prim_loss(
