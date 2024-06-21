@@ -15,6 +15,7 @@ import json
 import torch.utils.data
 import string
 import random
+import cv2
 try:
     from yaml import CLoader as Loader
 except ImportError:
@@ -27,6 +28,7 @@ from networks.baseline_network import Network_pts
 import configparser
 from myutils.losses import mseloss, distChamfer
 from learnable_primitives.loss_functions import sample_surface_vertices
+from myutils.visualize_baseline import visualize_predictions_training_data
 
 class Mesh:
     def __init__(self, vertices, faces, colors):
@@ -65,8 +67,8 @@ parser.add_argument('--batch_size_val', type=int, default=1, help='Batch size of
 parser.add_argument('--data_path', type=str, default='/root/Prim3D/d3dhoi_video_data/microwave')
 parser.add_argument('--template_path', type=str, default='/root/Prim3D/SQ_templates/microwave')
 parser.add_argument('--data_load_ratio', type=float, default=1.0)
-parser.add_argument('--save_every', type=int, default=200)
-parser.add_argument('--val_every', type=int, default=200)
+parser.add_argument('--save_every', type=int, default=10)
+parser.add_argument('--val_every', type=int, default=10)
 parser.add_argument('--config_file', type=str, default="config/tmp_config.yaml")
 parser.add_argument('--lr', type=float, default=0.001)
 parser.add_argument('--annealing_lr', type=bool, default=True)
@@ -348,11 +350,18 @@ def train():
                 pred_3d_keypoint = pred_dict['deformed_object_pivot_loc']
                 # gt_3d_keypoint = ???
                 # keypoint_loss=L1Loss(pred_3d_keypoint,gt_3d_keypoint)
-
+                
                 # Joint angle loss
+                # pred_angle= pred_dict['object_pred_angle_leaf'][0][0]
+                # gt_angle = data_dict['jointstate'][0][frame_id].cuda()
+                # joint_angle_loss = mseloss(pred_angle, gt_angle)
+
                 pred_angle= pred_dict['object_pred_angle_leaf'][0][0]
                 gt_angle = data_dict['jointstate'][0][frame_id].cuda()
-                joint_angle_loss = mseloss(pred_angle, gt_angle) * 10
+                theta_true_rad = torch.deg2rad(gt_angle)
+                theta_pred_rad = torch.deg2rad(pred_angle)
+                cosine_similarity = torch.cos(theta_true_rad - theta_pred_rad)
+                joint_angle_loss = cosine_similarity
                 
                 # surface vertices loss
                 pred_rot = pred_dict['object_pred_rotmat_root'].squeeze()  # (1, 3, 3)
@@ -363,7 +372,7 @@ def train():
                     gt_surface_sample = sample_surface_vertices(sq_params[i], sq_rots[i], torch.zeros((3, 1)))
                     surface_vertices_loss += distChamfer(pred_surface_sample, gt_surface_sample)
 
-                loss = part_segment_mask_loss + joint_angle_loss + surface_vertices_loss
+                loss =  part_segment_mask_loss + joint_angle_loss + surface_vertices_loss
                 total_frame_loss += loss
 
             # TODO: compute loss functions
@@ -393,7 +402,7 @@ def train():
                 args
             )
         
-        continue
+        # continue
 
         if epoch % args.val_every == 0:
             print("====> Validation Epoch ====>")
@@ -453,10 +462,9 @@ def train():
                         os.makedirs(out_path)
 
                     # TODO: visualze the predicted results
-                    from myutils.visualize_baseline import visualize_predictions_training_data
-                    object_fs=[]
-                    for f in global_faces:
-                        object_fs.append(f.to(dtype=torch.int32))  #torch.Size([1308, 3])
+                    # object_fs=[]
+                    # for f in global_faces:
+                    #     object_fs.append(f.to(dtype=torch.int32))  #torch.Size([1308, 3])
                     
                     for frame_id in range(frame_num):
                         pred_dict = pred_dict_list[frame_id]
@@ -465,11 +473,32 @@ def train():
                         seg_mask_image = object_white_mask[:, frame_id, :, :, :]
                         rgb_image = pred_dict['rgb_image']
                         image_names = data_dict['img_id']
-                        visualize_predictions_training_data(
-                            pred_object_vs, object_fs,
-                            rgb_image,
-                            image_names, out_path, frame_id
-                        )
+                        # visualize_predictions_training_data(
+                        #     pred_object_vs, object_fs,
+                        #     rgb_image,
+                        #     image_names, out_path, frame_id
+                        # )
+                        # Part segment masks loss
+                        seg_map_list=[]
+                        for i in range(2):
+                            vertices = pred_dict['deformed_object'][i][0] #torch.Size([1, 656, 3])
+                            faces = global_faces[i][0].to(dtype=torch.int32)  #torch.Size([1308, 3])
+                            num_vertices = vertices.shape[0]  # 656
+                            colors = torch.ones(num_vertices,3).cuda() #torch.Size([656, 3])  #白色的mask
+                            mesh = Mesh(vertices,faces,colors)
+                            seg_map = renderer(mesh,(0,0,0,0,224,224),focal_length=0) #focal_length用不上  #torch.Size([1, 224, 224, 3])
+                            seg_map = seg_map[0].permute(2,0,1) #torch.Size([3, 224, 224])
+                            seg_map = seg_map[0].unsqueeze(0)
+                            seg_map_list.append(seg_map)
+                        whole_seg_map = seg_map_list[0]+seg_map_list[1] #torch.Size([1, 224, 224])
+                        rgb_image = rgb_image.squeeze().cpu().detach().numpy()
+                        result_image = [np.transpose(rgb_image, (1, 2, 0))]
+                        whole_seg_map = whole_seg_map.repeat(3, 1, 1).cpu().detach().numpy() * 256
+                        result_image.append(np.transpose(whole_seg_map, (1, 2, 0)))
+                        result_image = np.concatenate(result_image, axis=0)
+                        
+                        output_directory = os.path.join(out_path, str(frame_id) + '.jpg')
+                        cv2.imwrite(output_directory, cv2.cvtColor(result_image, cv2.COLOR_RGB2BGR))
 
             print("====> Validation Epoch ====>")
 
